@@ -8,7 +8,7 @@ package main
 
 import (
 	"github.com/samsarahq/taskrunner"
-	"github.com/ChenJesse/taskrunner/clireporter"
+	"github.com/samsarahq/taskrunner/clireporter"
 )
 
 func main() {
@@ -28,8 +28,8 @@ import (
 	"context"
 
 	"github.com/samsarahq/taskrunner"
-	"github.com/ChenJesse/taskrunner/goextensions"
-	"github.com/ChenJesse/taskrunner/shell"
+	"github.com/samsarahq/taskrunner/goextensions"
+	"github.com/samsarahq/taskrunner/shell"
 )
 
 // Run a simple task.

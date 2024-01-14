@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ChenJesse/taskrunner/config"
-	"github.com/ChenJesse/taskrunner/shell"
-	"github.com/ChenJesse/taskrunner/watcher"
 	"github.com/samsarahq/go/oops"
+	"github.com/samsarahq/taskrunner/config"
+	"github.com/samsarahq/taskrunner/shell"
+	"github.com/samsarahq/taskrunner/watcher"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 	"mvdan.cc/sh/interp"

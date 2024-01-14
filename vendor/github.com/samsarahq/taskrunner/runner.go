@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/ChenJesse/taskrunner/config"
 	"github.com/samsarahq/go/oops"
+	"github.com/samsarahq/taskrunner/config"
 
 	"golang.org/x/sync/errgroup"
 )

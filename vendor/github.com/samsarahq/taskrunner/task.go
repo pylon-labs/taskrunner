@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ChenJesse/taskrunner/shell"
+	"github.com/samsarahq/taskrunner/shell"
 )
 
 type Task struct {

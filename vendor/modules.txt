@@ -52,10 +52,9 @@ github.com/samsarahq/go/snapshotter
 # github.com/samsarahq/taskrunner v0.0.0-20231026224804-b358b1d4e8dd
 ## explicit; go 1.17
 github.com/samsarahq/taskrunner
-github.com/ChenJesse/taskrunner/clireporter
-github.com/ChenJesse/taskrunner/config
-github.com/ChenJesse/taskrunner/shell
-github.com/ChenJesse/taskrunner/watcher
+github.com/samsarahq/taskrunner/config
+github.com/samsarahq/taskrunner/shell
+github.com/samsarahq/taskrunner/watcher
 # github.com/stretchr/testify v1.8.4
 ## explicit; go 1.20
 github.com/stretchr/testify/assert
