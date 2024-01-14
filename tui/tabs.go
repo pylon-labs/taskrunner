@@ -4,8 +4,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ChenJesse/taskrunner"
 	tui "github.com/marcusolsson/tui-go"
+	"github.com/pylon-labs/taskrunner"
 )
 
 type uiTab struct {

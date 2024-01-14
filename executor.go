@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ChenJesse/taskrunner/config"
-	"github.com/ChenJesse/taskrunner/shell"
-	"github.com/ChenJesse/taskrunner/watcher"
+	"github.com/pylon-labs/taskrunner/config"
+	"github.com/pylon-labs/taskrunner/shell"
+	"github.com/pylon-labs/taskrunner/watcher"
 	"github.com/samsarahq/go/oops"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"

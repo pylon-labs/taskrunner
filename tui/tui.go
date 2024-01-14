@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ChenJesse/taskrunner"
 	tui "github.com/marcusolsson/tui-go"
+	"github.com/pylon-labs/taskrunner"
 )
 
 func Option(r *taskrunner.Runtime) {

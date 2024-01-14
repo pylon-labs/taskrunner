@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/ChenJesse/taskrunner/shell"
+	"github.com/pylon-labs/taskrunner/shell"
 )
 
 // snapshotter tracks the state of a git repository via snapshots.

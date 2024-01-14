@@ -2,13 +2,13 @@
 A configurable taskrunner written in Go. Taskrunner can streamline your build system by creating reusable task definitions with names, descriptions, dependencies, and a run function written in Go. Taskrunner comes with a shell interpreter, so it can run arbitrary functions on the command line.
 
 ## Setup
-Add taskrunner as a dependency `go get -v github.com/ChenJesse/taskrunner`, and create the following `main.go` file:
+Add taskrunner as a dependency `go get -v github.com/pylon-labs/taskrunner`, and create the following `main.go` file:
 ```go
 package main
 
 import (
-	"github.com/ChenJesse/taskrunner"
-	"github.com/ChenJesse/taskrunner/clireporter"
+	"github.com/pylon-labs/taskrunner"
+	"github.com/pylon-labs/taskrunner/clireporter"
 )
 
 func main() {
@@ -27,9 +27,9 @@ package main
 import (
 	"context"
 
-	"github.com/ChenJesse/taskrunner"
-	"github.com/ChenJesse/taskrunner/goextensions"
-	"github.com/ChenJesse/taskrunner/shell"
+	"github.com/pylon-labs/taskrunner"
+	"github.com/pylon-labs/taskrunner/goextensions"
+	"github.com/pylon-labs/taskrunner/shell"
 )
 
 // Run a simple task.

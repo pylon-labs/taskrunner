@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ChenJesse/taskrunner"
-	"github.com/ChenJesse/taskrunner/shell"
+	"github.com/pylon-labs/taskrunner"
+	"github.com/pylon-labs/taskrunner/shell"
 )
 
 const CachePath = ".cache/taskrunner"
