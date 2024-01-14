@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ChenJesse/taskrunner"
 	"github.com/fatih/color"
-	"github.com/samsarahq/taskrunner"
 )
 
 type logger struct {

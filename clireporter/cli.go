@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/samsarahq/taskrunner"
+	"github.com/ChenJesse/taskrunner"
 )
 
 type cli struct {

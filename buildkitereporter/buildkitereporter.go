@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ChenJesse/taskrunner"
 	"github.com/ChenJesse/taskrunner/shell"
-	"github.com/samsarahq/taskrunner"
 )
 
 type ReporterOption func(r *reporter)
