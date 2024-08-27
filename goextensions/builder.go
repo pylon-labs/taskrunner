@@ -12,14 +12,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattn/go-zglob"
 	"github.com/pylon-labs/taskrunner"
 	"github.com/pylon-labs/taskrunner/clireporter"
 	"github.com/pylon-labs/taskrunner/shell"
 	"mvdan.cc/sh/interp"
 )
 
-var stdlibLookupMu = sync.Mutex{}
-var stdlibLookup = make(map[string]*bool)
+var (
+	stdlibLookupMu = sync.Mutex{}
+	stdlibLookup   = make(map[string]*bool)
+)
 
 func isStdLib(pkg string) bool {
 	stdlibLookupMu.Lock()
@@ -173,7 +176,10 @@ func (b *buildBinder) saveDependencies(ctx context.Context, root string, shellRu
 		return err
 	}
 
-	b.pkgDependencies = strings.Split(strings.TrimSuffix(strings.TrimPrefix(buffer.String(), "["), "]"), " ")
+	dependencies := strings.Split(strings.TrimSuffix(strings.TrimPrefix(buffer.String(), "["), "]"), " ")
+	for _, dep := range dependencies {
+		b.pkgDependencies = append(b.pkgDependencies, filepath.Join("**/", dep, "/*.go"))
+	}
 	return nil
 }
 
@@ -194,12 +200,12 @@ func (b *buildBinder) shouldInvalidate(event taskrunner.InvalidationEvent) bool 
 			return true
 		}
 
-		for _, dep := range append(b.pkgDependencies, b.pkg) {
+		for _, dep := range append(b.pkgDependencies, filepath.Join("**/", b.pkg, "/*.go")) {
 			// Ignore dependencies that are part of the std lib.
 			if isStdLib(dep) {
 				continue
 			}
-			if ok := strings.Contains(event.File, dep); ok {
+			if ok, _ := zglob.Match(dep, event.File); ok {
 				return true
 			}
 		}
@@ -215,7 +221,6 @@ func (b *buildBinder) shouldInvalidate(event taskrunner.InvalidationEvent) bool 
 // to the import graph of the specified package.
 func (builder *GoBuilder) WrapWithGoBuild(pkg string) taskrunner.TaskOption {
 	return func(task *taskrunner.Task) *taskrunner.Task {
-
 		newTask := *task
 
 		buildBinder := newBuildBinder(pkg)
