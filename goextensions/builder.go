@@ -205,8 +205,11 @@ func (b *buildBinder) shouldInvalidate(event taskrunner.InvalidationEvent) bool 
 			if isStdLib(dep) {
 				continue
 			}
-			if ok, _ := zglob.Match(dep, event.File); ok {
-				return true
+
+			if strings.Contains(event.File, dep) {
+				if ok, _ := zglob.Match(dep, event.File); ok {
+					return true
+				}
 			}
 		}
 		return false
