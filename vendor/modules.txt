@@ -45,7 +45,7 @@ github.com/mitchellh/go-wordwrap
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
-# github.com/samsarahq/go v0.0.0-20230622164605-46203ca3a6d8
+# github.com/samsarahq/go v0.0.0-20240911161602-ad0977dc0ab1
 ## explicit; go 1.17
 github.com/samsarahq/go/oops
 github.com/samsarahq/go/snapshotter
