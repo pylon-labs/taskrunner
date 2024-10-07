@@ -73,7 +73,7 @@ golang.org/x/text/transform
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
-# mvdan.cc/sh v2.5.1-0.20180917103936-65d8e2a4b156+incompatible
+# mvdan.cc/sh v2.6.4+incompatible
 ## explicit
 mvdan.cc/sh/expand
 mvdan.cc/sh/interp

@@ -35,15 +35,6 @@ func Stdin(reader io.Reader) RunOption {
 	}
 }
 
-// Env sets the environment variables for the command.
-func Env(vars map[string]string) RunOption {
-	return func(r *interp.Runner) {
-		for k, v := range vars {
-			r.Env.Set(k, v)
-		}
-	}
-}
-
 // Run executes a shell command.
 func Run(ctx context.Context, command string, opts ...RunOption) error {
 	p, err := syntax.NewParser().Parse(strings.NewReader(command), "")

@@ -5,7 +5,8 @@ package syntax
 
 import "strconv"
 
-// TODO: consider making these special syntax nodes
+// TODO(v3): Consider making these special syntax nodes.
+// Among other things, we can make use of Word.Lit.
 
 type brace struct {
 	seq   bool // {x..y[..incr]} instead of {x,y[,...]}
@@ -264,6 +265,8 @@ func expandRec(bw *braceWord) []*Word {
 	}
 	return []*Word{{Parts: left}}
 }
+
+// TODO(v3): remove
 
 // ExpandBraces performs Bash brace expansion on a word. For example,
 // passing it a single-literal word "foo{bar,baz}" will return two

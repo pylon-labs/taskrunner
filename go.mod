@@ -10,7 +10,7 @@ require (
 	github.com/stretchr/testify v1.8.4
 	go.uber.org/multierr v1.11.0
 	golang.org/x/sync v0.6.0
-	mvdan.cc/sh v2.5.1-0.20180917103936-65d8e2a4b156+incompatible
+	mvdan.cc/sh v2.6.4+incompatible
 )
 
 require (
