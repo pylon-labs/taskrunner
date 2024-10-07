@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/fatih/color v1.16.0
 	github.com/marcusolsson/tui-go v0.4.0
-	github.com/mattn/go-zglob v0.0.1
+	github.com/mattn/go-zglob v0.0.6
 	github.com/samsarahq/go v0.0.0-20230622164605-46203ca3a6d8
 	github.com/stretchr/testify v1.8.4
 	go.uber.org/multierr v1.11.0
