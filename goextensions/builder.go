@@ -200,6 +200,11 @@ func (b *buildBinder) shouldInvalidate(event taskrunner.InvalidationEvent) bool 
 			return true
 		}
 
+		// Ignore test files.
+		if strings.HasSuffix(event.File, "_test.go") {
+			return false
+		}
+
 		for _, dep := range append(b.pkgDependencies, filepath.Join("**/", b.pkg, "/*.go")) {
 			// Ignore dependencies that are part of the std lib.
 			if isStdLib(dep) {
