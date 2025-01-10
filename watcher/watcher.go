@@ -67,7 +67,7 @@ func (w *FSEventsWatcher) Run(ctx context.Context) error {
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 
-	cmd := exec.CommandContext(ctx, "fswatch", "-n", "-interval", "0.1", w.directory)
+	cmd := exec.CommandContext(ctx, "fswatch", "-n", "-l", "0.1", w.directory)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return oops.Wrapf(err, "")
