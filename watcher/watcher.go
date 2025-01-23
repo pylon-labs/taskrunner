@@ -78,6 +78,9 @@ func (w *FSEventsWatcher) Run(ctx context.Context) error {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := strings.Split(scanner.Text(), " ")
+			if len(line) < 2 {
+				continue
+			}
 
 			relFilename, err := filepath.Rel(w.directory, line[0])
 			if err != nil {
