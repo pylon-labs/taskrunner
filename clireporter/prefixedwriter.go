@@ -88,9 +88,7 @@ func isLikelyJSON(data []byte) bool {
 	}
 
 	first := trimmed[0]
-	// JSON objects start with {, arrays with [, strings with ", and we'll be conservative
-	// and only format these as JSON. Standalone numbers, booleans, null shouldn't be reformatted.
-	return first == '{' || first == '[' || first == '"'
+	return first == '{'
 }
 
 func (w *PrefixedWriter) Write(p []byte) (n int, err error) {
