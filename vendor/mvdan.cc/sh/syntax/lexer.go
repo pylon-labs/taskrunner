@@ -60,10 +60,9 @@ func (p *Parser) rune() rune {
 		// p.r instead of b so that newline
 		// character positions don't have col 0.
 		p.npos.line++
-		p.npos.col = 1
-	} else {
-		p.npos.col += p.w
+		p.npos.col = 0
 	}
+	p.npos.col += p.w
 	bquotes := 0
 retry:
 	if p.bsp < len(p.bs) {
@@ -87,9 +86,8 @@ retry:
 			p.w, p.r = 1, rune(b)
 			return p.r
 		}
-		if p.bsp+utf8.UTFMax >= len(p.bs) {
-			// we might need up to 4 bytes to read a full
-			// non-ascii rune
+		if !utf8.FullRune(p.bs[p.bsp:]) {
+			// we need more bytes to read a full non-ascii rune
 			p.fill()
 		}
 		var w int
@@ -122,14 +120,18 @@ func (p *Parser) fill() {
 	p.offs += p.bsp
 	left := len(p.bs) - p.bsp
 	copy(p.readBuf[:left], p.readBuf[p.bsp:])
+readAgain:
 	n, err := 0, p.readErr
 	if err == nil {
 		n, err = p.src.Read(p.readBuf[left:])
 		p.readErr = err
 	}
 	if n == 0 {
+		if err == nil {
+			goto readAgain
+		}
 		// don't use p.errPass as we don't want to overwrite p.tok
-		if err != nil && err != io.EOF {
+		if err != io.EOF {
 			p.err = err
 		}
 		if left > 0 {
@@ -296,7 +298,6 @@ changedState:
 		if !p.rxFirstPart && p.spaced {
 			p.quote = noState
 			goto changedState
-			return
 		}
 		p.rxFirstPart = false
 		switch r {
@@ -908,7 +909,6 @@ func (p *Parser) advanceLitHdoc(r rune) {
 	p.newLit(r)
 	if p.quote == hdocBodyTabs {
 		for r == '\t' {
-			p.discardLit(1)
 			r = p.rune()
 		}
 	}
@@ -943,7 +943,6 @@ func (p *Parser) advanceLitHdoc(r rune) {
 			if p.quote == hdocBodyTabs {
 				for p.peekByte('\t') {
 					p.rune()
-					p.discardLit(1)
 				}
 			}
 			lStart = len(p.litBs)
@@ -951,7 +950,7 @@ func (p *Parser) advanceLitHdoc(r rune) {
 	}
 }
 
-func (p *Parser) hdocLitWord() *Word {
+func (p *Parser) quotedHdocWord() *Word {
 	r := p.r
 	p.newLit(r)
 	pos := p.getPos()
@@ -961,7 +960,6 @@ func (p *Parser) hdocLitWord() *Word {
 		}
 		if p.quote == hdocBodyTabs {
 			for r == '\t' {
-				p.discardLit(1)
 				r = p.rune()
 			}
 		}

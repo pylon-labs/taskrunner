@@ -3,7 +3,10 @@
 
 package syntax
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Node represents a syntax tree node.
 type Node interface {
@@ -243,7 +246,12 @@ func (r *Redirect) Pos() Pos {
 	}
 	return r.OpPos
 }
-func (r *Redirect) End() Pos { return r.Word.End() }
+func (r *Redirect) End() Pos {
+	if r.Hdoc != nil {
+		return r.Hdoc.End()
+	}
+	return r.Word.End()
+}
 
 // CallExpr represents a command execution or function call, otherwise known as
 // a "simple command".
@@ -289,6 +297,10 @@ type Block struct {
 func (b *Block) Pos() Pos { return b.Lbrace }
 func (b *Block) End() Pos { return posAddCol(b.Rbrace, 1) }
 
+// TODO(v3): Refactor and simplify elif/else. For example, we could likely make
+// Else an *IfClause, remove ElsePos, make IfPos also do opening "else"
+// positions, and join the comment slices as Last []Comment.
+
 // IfClause represents an if statement.
 type IfClause struct {
 	Elif    bool // whether this IfClause begins with "elif"
@@ -302,6 +314,7 @@ type IfClause struct {
 	Else StmtList
 
 	ElseComments []Comment // comments on the "else"
+	FiComments   []Comment // comments on the "fi"
 }
 
 func (c *IfClause) Pos() Pos { return c.IfPos }
@@ -363,14 +376,21 @@ func (*WordIter) loopNode()   {}
 func (*CStyleLoop) loopNode() {}
 
 // WordIter represents the iteration of a variable over a series of words in a
-// for clause.
+// for clause. If InPos is an invalid position, the "in" token was missing, so
+// the iteration is over the shell's positional parameters.
 type WordIter struct {
 	Name  *Lit
+	InPos Pos // position of "in"
 	Items []*Word
 }
 
 func (w *WordIter) Pos() Pos { return w.Name.Pos() }
-func (w *WordIter) End() Pos { return posMax(w.Name.End(), wordLastEnd(w.Items)) }
+func (w *WordIter) End() Pos {
+	if len(w.Items) > 0 {
+		return wordLastEnd(w.Items)
+	}
+	return posMax(w.Name.End(), posAddCol(w.InPos, 2))
+}
 
 // CStyleLoop represents the behaviour of a for clause similar to the C
 // language.
@@ -414,6 +434,28 @@ type Word struct {
 
 func (w *Word) Pos() Pos { return w.Parts[0].Pos() }
 func (w *Word) End() Pos { return w.Parts[len(w.Parts)-1].End() }
+
+// Lit returns the word as a literal value, if the word consists of *syntax.Lit
+// nodes only. An empty string is returned otherwise. Words with multiple
+// literals, which can appear in some edge cases, are handled properly.
+//
+// For example, the word "foo" will return "foo", but the word "foo${bar}" will
+// return "".
+func (w *Word) Lit() string {
+	// In the usual case, we'll have either a single part that's a literal,
+	// or one of the parts being a non-literal. Using strings.Join instead
+	// of a strings.Builder avoids extra work in these cases, since a single
+	// part is a shortcut, and many parts don't incur string copies.
+	lits := make([]string, 0, 1)
+	for _, part := range w.Parts {
+		lit, ok := part.(*Lit)
+		if !ok {
+			return ""
+		}
+		lits = append(lits, lit.Value)
+	}
+	return strings.Join(lits, "")
+}
 
 // WordPart represents all nodes that can form part of a word.
 //
@@ -746,8 +788,12 @@ func (a *ArrayExpr) Pos() Pos { return a.Lparen }
 func (a *ArrayExpr) End() Pos { return posAddCol(a.Rparen, 1) }
 
 // ArrayElem represents a Bash array element.
+//
+// Index can be nil; for example, declare -a x=(value).
+// Value can be nil; for example, declare -A x=([index]=).
+// Finally, neither can be nil; for example, declare -A x=([index]=value)
 type ArrayElem struct {
-	Index    ArithmExpr // [i]=, ["k"]=
+	Index    ArithmExpr
 	Value    *Word
 	Comments []Comment
 }
@@ -758,7 +804,12 @@ func (a *ArrayElem) Pos() Pos {
 	}
 	return a.Value.Pos()
 }
-func (a *ArrayElem) End() Pos { return a.Value.End() }
+func (a *ArrayElem) End() Pos {
+	if a.Value != nil {
+		return a.Value.End()
+	}
+	return posAddCol(a.Index.Pos(), 1)
+}
 
 // ExtGlob represents a Bash extended globbing expression. Note that these are
 // parsed independently of whether shopt has been called or not.
