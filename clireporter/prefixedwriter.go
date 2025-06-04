@@ -2,6 +2,7 @@ package clireporter
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -28,9 +29,11 @@ func newLogger(w io.Writer) *logger {
 }
 
 func (l *logger) SetSeparator(separator string) { l.separator = separator }
+
 func (l *logger) Write(t *taskrunner.Task, msg string) {
 	l.writers[t].Write([]byte(msg))
 }
+
 func (l *logger) Writef(t *taskrunner.Task, format string, v ...interface{}) {
 	l.Write(t, fmt.Sprintf(format, v...))
 }
@@ -76,6 +79,20 @@ var colors = []color.Attribute{
 
 var defaultPadding = 16
 
+// isLikelyJSON checks if the input appears to be JSON by looking at the first non-whitespace character.
+func isLikelyJSON(data []byte) bool {
+	// Trim whitespace to get the first meaningful character.
+	trimmed := strings.TrimSpace(string(data))
+	if len(trimmed) == 0 {
+		return false
+	}
+
+	first := trimmed[0]
+	// JSON objects start with {, arrays with [, strings with ", and we'll be conservative
+	// and only format these as JSON. Standalone numbers, booleans, null shouldn't be reformatted.
+	return first == '{' || first == '[' || first == '"'
+}
+
 func (w *PrefixedWriter) Write(p []byte) (n int, err error) {
 	separator := w.Separator
 	if separator == "" {
@@ -90,13 +107,20 @@ func (w *PrefixedWriter) Write(p []byte) (n int, err error) {
 	// change.
 	// The writer expects us to return the original length of p.
 	origLen := len(p)
-	var jsonObj interface{}
-	err = json.Unmarshal([]byte(p), &jsonObj)
-	if err == nil {
-		jsonData, err := json.MarshalIndent(jsonObj, "", "  ")
+
+	// Only attempt JSON parsing if the input looks like JSON (objects, arrays, strings).
+	if isLikelyJSON(p) {
+		// Use json.Decoder with UseNumber() to preserve large integer precision.
+		decoder := json.NewDecoder(bytes.NewReader(p))
+		decoder.UseNumber()
+		var jsonObj any
+		err = decoder.Decode(&jsonObj)
 		if err == nil {
-			// Treat output as indented JSON
-			p = jsonData
+			jsonData, err := json.MarshalIndent(jsonObj, "", "  ")
+			if err == nil {
+				// Treat output as indented JSON
+				p = jsonData
+			}
 		}
 	}
 
