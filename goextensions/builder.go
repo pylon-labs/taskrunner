@@ -16,7 +16,6 @@ import (
 	"github.com/pylon-labs/taskrunner"
 	"github.com/pylon-labs/taskrunner/clireporter"
 	"github.com/pylon-labs/taskrunner/shell"
-	"mvdan.cc/sh/interp"
 )
 
 var (
@@ -116,13 +115,7 @@ func (b *GoBuilder) build() {
 	}
 
 	fmt.Fprintf(stdout, "building packages: %s", pkgList)
-	b.err = shell.Run(b.ctx, fmt.Sprintf("go install -v %s", pkgList), func(r *interp.Runner) {
-		r.Stdout = stdout
-		r.Stderr = stderr
-		if b.ModuleRoot != "" {
-			r.Dir = b.ModuleRoot
-		}
-	})
+	b.err = shell.Run(b.ctx, fmt.Sprintf("go install -v %s", pkgList), shell.Stdout(stdout), shell.Stderr(stderr), shell.Dir(b.ModuleRoot))
 	fmt.Fprintln(stdout, "done building packages")
 
 	close(b.doneCh)
@@ -168,11 +161,7 @@ func newBuildBinder(pkg string) *buildBinder {
 
 func (b *buildBinder) saveDependencies(ctx context.Context, root string, shellRun shell.ShellRun) error {
 	var buffer bytes.Buffer
-	if err := shellRun(ctx, fmt.Sprintf("go list -f '{{ .Deps }}' %s", b.pkg), shell.Stdout(&buffer), func(r *interp.Runner) {
-		if root != "" {
-			r.Dir = root
-		}
-	}); err != nil {
+	if err := shellRun(ctx, fmt.Sprintf("go list -f '{{ .Deps }}' %s", b.pkg), shell.Stdout(&buffer), shell.Dir(root)); err != nil {
 		return err
 	}
 

@@ -17,7 +17,6 @@ import (
 	"github.com/samsarahq/go/oops"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
-	"mvdan.cc/sh/interp"
 )
 
 // Executor constructs and executes a DAG for the tasks specified and
@@ -301,19 +300,19 @@ func (e *Executor) Run(ctx context.Context, taskNames []string, runtime *Runtime
 // Commands run in a consistent environment (configurable on a taskrunner level).
 // Commands run in taskrunner's working directory.
 func (e *Executor) ShellRun(ctx context.Context, command string, opts ...shell.RunOption) error {
-	options := []shell.RunOption{
-		func(r *interp.Runner) {
-			logger := LoggerFromContext(ctx)
-			if logger == nil {
-				return
-			}
+	var options []shell.RunOption
 
-			r.Stdout = logger.Stdout
-			r.Stderr = logger.Stderr
-		},
+	// Default: forward stdout/stderr to executor's logger if available
+	if logger := LoggerFromContext(ctx); logger != nil {
+		options = append(options, shell.Stdout(logger.Stdout), shell.Stderr(logger.Stderr))
 	}
+
+	// Executor-level default options (if any)
 	options = append(options, e.shellRunOptions...)
+
+	// Call-site options
 	options = append(options, opts...)
+
 	return shell.Run(ctx, command, options...)
 }
 
