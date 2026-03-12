@@ -35,10 +35,6 @@ func resolveWorkingDir(filePath, pathOption string) (string, error) {
 		return "", oops.Wrapf(err, "unable to find config file %s", filePath)
 	}
 
-	configPath, err = filepath.EvalSymlinks(configPath)
-	if err != nil {
-		return "", oops.Wrapf(err, "failed to evaluate symlinks for config file: %s", filePath)
-	}
 	return filepath.Join(filepath.Dir(configPath), pathOption), nil
 }
 
