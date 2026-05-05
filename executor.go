@@ -660,6 +660,14 @@ func (e *Executor) runPass() {
 							simpleEvent: execution.simpleEvent(),
 							Error:       err,
 						})
+					} else if task.KeepAlive {
+						// A KeepAlive task should never exit cleanly on its own —
+						// treat it as an error so it gets restarted.
+						execution.state = taskExecutionState_error
+						e.publishEvent(&TaskFailedEvent{
+							simpleEvent: execution.simpleEvent(),
+							Error:       fmt.Errorf("keep-alive task %s exited unexpectedly", task.Name),
+						})
 					} else {
 						execution.state = taskExecutionState_done
 						e.publishEvent(&TaskCompletedEvent{
