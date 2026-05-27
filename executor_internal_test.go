@@ -152,6 +152,11 @@ func TestParseTaskOptionsListToMap(t *testing.T) {
 			expectedFlagFVal: boolPtr(true),
 		},
 		{
+			description:    "Explicit empty bool flag (--flag=) should not default to true",
+			flagArgs:       []string{"-f="},
+			expectFlagFNil: true,
+		},
+		{
 			description:          "Should store Default values for all flags and Value nil when no args are passed",
 			flagArgs:             []string{},
 			expectedFlagAVal:     boolPtr(true),

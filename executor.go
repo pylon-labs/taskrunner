@@ -449,7 +449,9 @@ func (e *Executor) parseTaskFlagsIntoMap(taskName string, flags []string) map[st
 		flagValErrMsg := fmt.Sprintf("The type for the `%s` flag is `%s`. Please use `%s`", key, taskFlag.ValueType, flagTypeToGetter[taskFlag.ValueType])
 
 		// Bare boolean flags (e.g. --dry-run without =value) mean true.
-		if val == "" && taskFlag.ValueType == BoolTypeFlag {
+		// len(splitFlag)==1 means no "=" was present; len(splitFlag)==2 with
+		// empty val means "--flag=" which is an explicit empty value, not bare.
+		if val == "" && len(splitFlag) == 1 && taskFlag.ValueType == BoolTypeFlag {
 			val = "true"
 		}
 
