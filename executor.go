@@ -448,6 +448,11 @@ func (e *Executor) parseTaskFlagsIntoMap(taskName string, flags []string) map[st
 		taskFlag := e.taskFlagsRegistry[taskName][key]
 		flagValErrMsg := fmt.Sprintf("The type for the `%s` flag is `%s`. Please use `%s`", key, taskFlag.ValueType, flagTypeToGetter[taskFlag.ValueType])
 
+		// Bare boolean flags (e.g. --dry-run without =value) mean true.
+		if val == "" && taskFlag.ValueType == BoolTypeFlag {
+			val = "true"
+		}
+
 		// If no val was passed, use the default flagArg that is already in the taskFlagsMap.
 		if val != "" {
 			flagArg := FlagArg{
