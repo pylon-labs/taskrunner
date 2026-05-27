@@ -100,7 +100,8 @@ func TestParseTaskOptionsListToMap(t *testing.T) {
 		expectedFlagCVal     *int
 		expectedFlagDVal     *float64
 		expectedFlagEVal     *time.Duration
-		expectFlagFValIsNil  bool
+		expectedFlagFVal     *bool
+		expectFlagFNil       bool
 		invalidFlagPanicVal  string
 	}{
 		{
@@ -146,9 +147,14 @@ func TestParseTaskOptionsListToMap(t *testing.T) {
 			expectedFlagEVal: durationPtr(time.Duration(11 * time.Hour)),
 		},
 		{
-			description:         "Should return nil if no arg passed to variable flag and no Default defined",
-			flagArgs:            []string{"-f"},
-			expectFlagFValIsNil: true,
+			description:      "Bare bool flag without =value should be treated as true",
+			flagArgs:         []string{"-f"},
+			expectedFlagFVal: boolPtr(true),
+		},
+		{
+			description:    "Explicit empty bool flag (--flag=) should not default to true",
+			flagArgs:       []string{"-f="},
+			expectFlagFNil: true,
 		},
 		{
 			description:          "Should store Default values for all flags and Value nil when no args are passed",
@@ -158,7 +164,7 @@ func TestParseTaskOptionsListToMap(t *testing.T) {
 			expectedFlagBVal:     stringPtr("presidential dolphin"),
 			expectedFlagCVal:     intPtr(10),
 			expectedFlagDVal:     float64Ptr(1.72),
-			expectFlagFValIsNil:  true,
+			expectFlagFNil:       true,
 		},
 		{
 			description:         "Should panic if there are multiple `=`s in the flag",
@@ -280,9 +286,11 @@ func TestParseTaskOptionsListToMap(t *testing.T) {
 					}
 				}
 
-				if tc.expectFlagFValIsNil {
-					flagArg := flagsMap["f"]
-					assert.Nil(t, flagArg.BoolVal())
+				if tc.expectedFlagFVal != nil {
+					assert.Equal(t, *tc.expectedFlagFVal, *flagsMap["f"].BoolVal())
+				}
+				if tc.expectFlagFNil {
+					assert.Nil(t, flagsMap["f"].BoolVal())
 				}
 			}
 		})
