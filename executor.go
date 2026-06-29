@@ -651,14 +651,17 @@ func (e *Executor) runPass() {
 						duration = time.Since(started)
 					}
 
+					shouldResetCanceledKeepAlive := false
 					if ctx.Err() == context.Canceled {
+						wasInvalidated := execution.state == taskExecutionState_invalid
 						// Only move ourselves to permanently canceled if taskrunner is shutting down. Note
 						// that the invalidation codepath already set the state as invalid, so there is
 						// no else statement.
 						if e.ctx.Err() != nil {
 							execution.state = taskExecutionState_canceled
-						} else if task.KeepAlive && execution.ctx.Err() == nil {
+						} else if task.KeepAlive {
 							execution.state = taskExecutionState_invalid
+							shouldResetCanceledKeepAlive = execution.ctx.Err() != nil && !wasInvalidated
 						}
 						e.publishEvent(&TaskStoppedEvent{
 							simpleEvent: execution.simpleEvent(),
@@ -690,6 +693,10 @@ func (e *Executor) runPass() {
 					// invalidations occur after exit so that those channels do not block,
 					// waiting for this to complete.
 					execution.terminalCh <- struct{}{}
+					if shouldResetCanceledKeepAlive {
+						execution.ctx, execution.cancel = context.WithCancel(e.ctx)
+						execution.terminalCh = make(chan struct{}, 1)
+					}
 
 					if task.KeepAlive && execution.state == taskExecutionState_error {
 						e.Invalidate(task, KeepAliveStopped{})

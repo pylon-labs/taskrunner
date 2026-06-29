@@ -71,8 +71,8 @@ func (e *taskExecution) invalidate(executionCtx context.Context) {
 		return
 	}
 
-	e.cancel()
 	e.state = taskExecutionState_invalid
+	e.cancel()
 	e.ctx, e.cancel = context.WithCancel(executionCtx)
 	<-e.terminalCh
 	e.terminalCh = make(chan struct{}, 1)
