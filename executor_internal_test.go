@@ -10,6 +10,62 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type testInvalidationEvent struct{}
+
+func (f testInvalidationEvent) Reason() InvalidationReason {
+	return InvalidationReason_Invalid
+}
+
+func (f testInvalidationEvent) Description() string {
+	return "the test case decided to invalidate the task"
+}
+
+func TestKeepAliveTaskRestartsAfterInvalidationCancellation(t *testing.T) {
+	config := &config.Config{}
+	started := make(chan struct{}, 2)
+
+	task := &Task{
+		Name:      "keepalive",
+		KeepAlive: true,
+		Run: func(ctx context.Context, shellRun shell.ShellRun) error {
+			started <- struct{}{}
+			<-ctx.Done()
+			return nil
+		},
+	}
+
+	executor := NewExecutor(config, []*Task{task})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- executor.Run(ctx, []string{task.Name}, &Runtime{})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to start")
+	}
+
+	executor.Invalidate(task, testInvalidationEvent{})
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to restart after invalidation")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for executor to stop")
+	}
+}
+
 func boolPtr(i bool) *bool {
 	return &i
 }
