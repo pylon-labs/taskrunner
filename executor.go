@@ -657,6 +657,8 @@ func (e *Executor) runPass() {
 						// no else statement.
 						if e.ctx.Err() != nil {
 							execution.state = taskExecutionState_canceled
+						} else if task.KeepAlive && execution.ctx.Err() == nil {
+							execution.state = taskExecutionState_invalid
 						}
 						e.publishEvent(&TaskStoppedEvent{
 							simpleEvent: execution.simpleEvent(),
