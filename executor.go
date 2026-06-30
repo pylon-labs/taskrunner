@@ -696,6 +696,7 @@ func (e *Executor) runPass() {
 					if shouldResetCanceledKeepAlive {
 						execution.ctx, execution.cancel = context.WithCancel(e.ctx)
 						execution.terminalCh = make(chan struct{}, 1)
+						execution.pendingInvalidations = make(map[InvalidationEvent]struct{})
 					}
 
 					if task.KeepAlive && execution.state == taskExecutionState_error {
