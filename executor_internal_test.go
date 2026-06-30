@@ -112,6 +112,56 @@ func TestKeepAliveTaskRestartsAfterTaskContextCancellation(t *testing.T) {
 	}
 }
 
+func TestKeepAliveTaskContextCancellationClearsPendingInvalidations(t *testing.T) {
+	config := &config.Config{}
+	started := make(chan struct{}, 2)
+
+	task := &Task{
+		Name:      "keepalive",
+		KeepAlive: true,
+		Run: func(ctx context.Context, shellRun shell.ShellRun) error {
+			started <- struct{}{}
+			<-ctx.Done()
+			return nil
+		},
+	}
+
+	executor := NewExecutor(config, []*Task{task})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- executor.Run(ctx, []string{task.Name}, &Runtime{})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to start")
+	}
+
+	execution := executor.taskExecution(task)
+	execution.pendingInvalidations[testInvalidationEvent{}] = struct{}{}
+	execution.cancel()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to restart after task context cancellation")
+	}
+
+	assert.Empty(t, executor.taskExecution(task).pendingInvalidations)
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for executor to stop")
+	}
+}
+
 func boolPtr(i bool) *bool {
 	return &i
 }
