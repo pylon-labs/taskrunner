@@ -1,0 +1,23 @@
+executor.go
+  s_ddace718b793ef::t_8e32531570d493 654,696-699
+  s_ddace718b793ef::t_d83a8aac64562a 662
+  s_ddace718b793ef::t_bb6f7addac3fc4 656,664
+executor_internal_test.go
+  s_ddace718b793ef::t_f67ba97939f5d4 69-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "686f837a6bcb4bdbf53483d5c0581f42b829b304",
+  "prompts": {},
+  "sessions": {
+    "s_ddace718b793ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f1562-cb87-7ac1-a028-19f10b40a238",
+        "model": "gpt-5.5"
+      },
+      "human_author": null
+    }
+  }
+}
