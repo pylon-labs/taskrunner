@@ -1,0 +1,23 @@
+executor_internal_test.go
+  s_0b877d960bf6df::t_5751f6dccebf0b 166-194
+watch.go
+  s_0b877d960bf6df::t_b4e4d14da0d99f 40
+executor.go
+  s_0b877d960bf6df::t_1e3978000b86fa 228-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.9",
+  "base_commit_sha": "b1daa6ef4f9db064c46a4d6e0de63ed093366db8",
+  "prompts": {},
+  "sessions": {
+    "s_0b877d960bf6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f282c-ed76-73e1-992b-cb9a50873962",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Jesse Chen <jesse@usepylon.com>"
+    }
+  }
+}
