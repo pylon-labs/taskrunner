@@ -1,0 +1,26 @@
+executor_internal_test.go
+  s_0b877d960bf6df::t_37e3ad59098b7c 115-165
+executor.go
+  s_0b877d960bf6df::t_781c11873d8cf7 183-186
+  s_0b877d960bf6df::t_d62454b9d8af7b 181
+  s_0b877d960bf6df::t_b1406998ca9765 174,187-191,708
+executor_test.go
+  s_0b877d960bf6df::t_b8f5d46ac2d5cc 11,100-125
+  s_0b877d960bf6df::t_be8fd4da666f45 170,196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.9",
+  "base_commit_sha": "8365294359e5bda86d8116e3d119ce18b3039d4d",
+  "prompts": {},
+  "sessions": {
+    "s_0b877d960bf6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f282c-ed76-73e1-992b-cb9a50873962",
+        "model": "gpt-5.5"
+      },
+      "human_author": null
+    }
+  }
+}
