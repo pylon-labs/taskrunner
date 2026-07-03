@@ -163,6 +163,35 @@ func TestDependentTaskStartsWithoutInvalidationDelay(t *testing.T) {
 	}
 }
 
+func TestInvalidateCoalescesWakeupsWithoutBlocking(t *testing.T) {
+	config := &config.Config{}
+	task := &Task{
+		Name: "task",
+		Run: func(ctx context.Context, shellRun shell.ShellRun) error {
+			return nil
+		},
+	}
+
+	executor := NewExecutor(config, []*Task{task})
+	tasks := make(taskSet)
+	execution, _ := tasks.add(context.Background(), task)
+	execution.state = taskExecutionState_done
+	executor.tasks = tasks
+
+	done := make(chan struct{})
+	go func() {
+		executor.Invalidate(task, testInvalidationEvent{})
+		executor.Invalidate(task, testInvalidationEvent{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for duplicate invalidations to coalesce")
+	}
+}
+
 func boolPtr(i bool) *bool {
 	return &i
 }

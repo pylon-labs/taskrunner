@@ -37,7 +37,7 @@ func (e *Executor) runWatch(ctx context.Context) {
 		for event := range watcher.Events() {
 			for task := range e.tasks {
 				if IsTaskSource(task, event.RelativeFilename) {
-					go e.Invalidate(task, FileChange{
+					e.Invalidate(task, FileChange{
 						File: event.RelativeFilename,
 					})
 				}

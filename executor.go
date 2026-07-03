@@ -225,7 +225,10 @@ func (e *Executor) Invalidate(task *Task, event InvalidationEvent) {
 		return
 	}
 
-	e.invalidationCh <- struct{}{}
+	select {
+	case e.invalidationCh <- struct{}{}:
+	default:
+	}
 }
 
 func (e *Executor) Run(ctx context.Context, taskNames []string, runtime *Runtime) error {
