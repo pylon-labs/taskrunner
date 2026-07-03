@@ -171,22 +171,24 @@ func (e *Executor) runInvalidationLoop() {
 				return
 
 			case <-timer.C:
-				e.evaluateInvalidationPlan()
+				e.evaluateInvalidationPlan(true)
 				go e.runPass()
 			}
 		}
 	}()
 }
 
-// evaluateInvalidationPlan find all tasks that have pending invalidations
+// evaluateInvalidationPlan finds all tasks that have pending invalidations
 // and kicks off their re-execution.
-func (e *Executor) evaluateInvalidationPlan() {
-	// Wait for potential side effects from the last evaluation to complete.
-	// For instance, if task A depends on task B and task B changes a file that
-	// task A needs, then we want to wait for the file events from task B to propagate
-	// before evaluating the new plan. We must rely on timing because we cannot
-	// follow and wait for the execution to come back through fswatch.
-	time.Sleep(time.Millisecond * 1000)
+func (e *Executor) evaluateInvalidationPlan(waitForFilesystemEvents bool) {
+	if waitForFilesystemEvents {
+		// Wait for potential side effects from the last evaluation to complete.
+		// For instance, if task A depends on task B and task B changes a file that
+		// task A needs, then we want to wait for the file events from task B to propagate
+		// before evaluating the new plan. We must rely on timing because we cannot
+		// follow and wait for the execution to come back through fswatch.
+		time.Sleep(time.Millisecond * 1000)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -703,7 +705,7 @@ func (e *Executor) runPass() {
 					}
 
 					if err == nil {
-						e.evaluateInvalidationPlan()
+						e.evaluateInvalidationPlan(false)
 					}
 
 					e.runPass()

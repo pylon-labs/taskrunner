@@ -112,6 +112,57 @@ func TestKeepAliveTaskRestartsAfterTaskContextCancellation(t *testing.T) {
 	}
 }
 
+func TestDependentTaskStartsWithoutInvalidationDelay(t *testing.T) {
+	config := &config.Config{}
+	dependencyDone := make(chan struct{}, 1)
+	dependentStarted := make(chan struct{}, 1)
+
+	dependency := &Task{
+		Name: "dependency",
+		Run: func(ctx context.Context, shellRun shell.ShellRun) error {
+			dependencyDone <- struct{}{}
+			return nil
+		},
+	}
+	dependent := &Task{
+		Name:         "dependent",
+		Dependencies: []*Task{dependency},
+		Run: func(ctx context.Context, shellRun shell.ShellRun) error {
+			dependentStarted <- struct{}{}
+			return nil
+		},
+	}
+
+	executor := NewExecutor(config, []*Task{dependency, dependent})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- executor.Run(ctx, []string{dependent.Name}, &Runtime{})
+	}()
+
+	select {
+	case <-dependencyDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for dependency task to complete")
+	}
+
+	select {
+	case <-dependentStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("dependent task start was delayed by invalidation planning")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for executor to stop")
+	}
+}
+
 func boolPtr(i bool) *bool {
 	return &i
 }
