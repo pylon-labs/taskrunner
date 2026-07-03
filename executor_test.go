@@ -8,6 +8,7 @@ import (
 	"github.com/pylon-labs/taskrunner"
 	"github.com/pylon-labs/taskrunner/config"
 	"github.com/pylon-labs/taskrunner/shell"
+	"github.com/pylon-labs/taskrunner/watcher"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -96,6 +97,32 @@ func (f TestInvalidationEvent) Description() string {
 	return "the test case decided to invalidate the task"
 }
 
+type testWatcher struct {
+	events chan watcher.WatchEvent
+}
+
+func newTestWatcher() *testWatcher {
+	return &testWatcher{
+		events: make(chan watcher.WatchEvent),
+	}
+}
+
+func (w *testWatcher) Events() <-chan watcher.WatchEvent {
+	return w.events
+}
+
+func (w *testWatcher) Run(ctx context.Context) error {
+	<-ctx.Done()
+	close(w.events)
+	return nil
+}
+
+func withTestWatcher() taskrunner.ExecutorOption {
+	return taskrunner.WithWatcherEnhancer(func(w watcher.Watcher) watcher.Watcher {
+		return newTestWatcher()
+	})
+}
+
 // consumeUntil consumes the events channel until an event matching
 // the specified kind appears.
 func consumeUntil(t *testing.T, events <-chan taskrunner.ExecutorEvent, kind taskrunner.ExecutorEventKind) taskrunner.ExecutorEvent {
@@ -140,7 +167,7 @@ func TestExecutorInvalidations(t *testing.T) {
 		{
 			"dependency invalidated",
 			func(t *testing.T) {
-				executor := taskrunner.NewExecutor(config, tasks, taskrunner.WithWatchMode(true))
+				executor := taskrunner.NewExecutor(config, tasks, taskrunner.WithWatchMode(true), withTestWatcher())
 				ctx, cancel := context.WithCancel(context.Background())
 				events := executor.Subscribe()
 
@@ -166,7 +193,7 @@ func TestExecutorInvalidations(t *testing.T) {
 		{
 			"leaf invalidated",
 			func(t *testing.T) {
-				executor := taskrunner.NewExecutor(config, tasks)
+				executor := taskrunner.NewExecutor(config, tasks, taskrunner.WithWatchMode(true), withTestWatcher())
 				ctx, cancel := context.WithCancel(context.Background())
 				events := executor.Subscribe()
 
