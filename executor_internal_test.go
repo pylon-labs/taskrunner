@@ -20,6 +20,19 @@ func (f testInvalidationEvent) Description() string {
 	return "the test case decided to invalidate the task"
 }
 
+func assertNextEventKind(t *testing.T, events <-chan ExecutorEvent, expected ExecutorEventKind) {
+	t.Helper()
+	select {
+	case event, ok := <-events:
+		if !ok {
+			t.Fatalf("events closed before observing %s", expected)
+		}
+		assert.Equal(t, expected, event.Kind())
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", expected)
+	}
+}
+
 func TestKeepAliveTaskRestartsAfterInvalidationCancellation(t *testing.T) {
 	config := &config.Config{}
 	started := make(chan struct{}, 2)
@@ -48,7 +61,6 @@ func TestKeepAliveTaskRestartsAfterInvalidationCancellation(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for keepalive task to start")
 	}
-
 	executor.Invalidate(task, testInvalidationEvent{})
 
 	select {
@@ -134,6 +146,7 @@ func TestKeepAliveInvalidationSynchronizesTaskCompletion(t *testing.T) {
 	}
 
 	executor := NewExecutor(config, []*Task{task})
+	events := executor.Subscribe()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -147,6 +160,7 @@ func TestKeepAliveInvalidationSynchronizesTaskCompletion(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for keepalive task to start")
 	}
+	assertNextEventKind(t, events, ExecutorEventKind_TaskStarted)
 
 	executor.Invalidate(task, testInvalidationEvent{})
 	invalidationDone := make(chan struct{})
@@ -160,12 +174,19 @@ func TestKeepAliveInvalidationSynchronizesTaskCompletion(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for keepalive task to observe invalidation cancellation")
 	}
+	assertNextEventKind(t, events, ExecutorEventKind_TaskInvalidated)
 	close(allowCompletion)
+	assertNextEventKind(t, events, ExecutorEventKind_TaskStopped)
 
 	select {
 	case <-invalidationDone:
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for invalidation to finish after task completion")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("executor stopped before the keepalive task restarted: %v", err)
+	default:
 	}
 
 	select {
@@ -173,6 +194,7 @@ func TestKeepAliveInvalidationSynchronizesTaskCompletion(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for keepalive task to restart after invalidation")
 	}
+	assertNextEventKind(t, events, ExecutorEventKind_TaskStarted)
 
 	cancel()
 	select {
@@ -181,6 +203,94 @@ func TestKeepAliveInvalidationSynchronizesTaskCompletion(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for executor to stop")
 	}
+}
+
+func TestTaskWaitsForInvalidationCompletion(t *testing.T) {
+	task := &Task{Name: "task"}
+	tasks := make(taskSet)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	execution, _ := tasks.add(ctx, task)
+	execution.state = taskExecutionState_running
+	execution.pendingInvalidations[testInvalidationEvent{}] = struct{}{}
+	executionCtx := execution.ctx
+
+	_, terminalCh, invalidationDone, cancelInvalidation, ok := execution.beginInvalidation()
+	assert.True(t, ok)
+	select {
+	case <-executionCtx.Done():
+		t.Fatal("beginInvalidation canceled the task before its event could be published")
+	default:
+	}
+	cancelInvalidation()
+	select {
+	case <-executionCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("captured invalidation cancellation did not stop the task")
+	}
+
+	waitDone := make(chan struct{})
+	go func() {
+		execution.waitForInvalidation(terminalCh)
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+		t.Fatal("task stopped waiting before invalidation completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	execution.finishInvalidation(ctx, terminalCh)
+	execution.completeInvalidation(invalidationDone)
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("task did not stop waiting after invalidation completed")
+	}
+	assert.Equal(t, taskExecutionState(taskExecutionState_invalid), execution.getState())
+}
+
+func TestInvalidatingDependencyIsNotReady(t *testing.T) {
+	dependency := &Task{Name: "dependency"}
+	dependent := &Task{
+		Name:         "dependent",
+		Dependencies: []*Task{dependency},
+	}
+	tasks := make(taskSet)
+	dependentExecution, _ := tasks.add(context.Background(), dependent)
+	dependencyExecution := tasks[dependency]
+	dependencyExecution.state = taskExecutionState_done
+	dependencyExecution.invalidating = true
+
+	_, ready := dependentExecution.start()
+	assert.False(t, ready)
+}
+
+func TestShouldInvalidateCanReadTaskState(t *testing.T) {
+	task := &Task{Name: "task"}
+	tasks := make(taskSet)
+	execution, _ := tasks.add(context.Background(), task)
+	execution.state = taskExecutionState_done
+	handler := NewTaskHandler(execution)
+	observedState := make(chan TaskHandlerExecutionState, 1)
+	task.ShouldInvalidate = func(event InvalidationEvent) bool {
+		observedState <- handler.State()
+		return false
+	}
+
+	done := make(chan struct{})
+	go func() {
+		execution.Invalidate(testInvalidationEvent{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ShouldInvalidate deadlocked while reading task state")
+	}
+	assert.Equal(t, TaskHandlerExecutionState(TaskHandlerExecutionState_Done), <-observedState)
 }
 
 func TestDependentTaskStartsWithoutInvalidationDelay(t *testing.T) {

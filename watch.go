@@ -27,7 +27,7 @@ func IsTaskSource(task *Task, path string) (matches bool) {
 	return matches
 }
 
-func (e *Executor) runWatch(ctx context.Context) {
+func (e *Executor) runWatch(ctx context.Context, cancel context.CancelFunc) {
 	watcher := watcher.NewWatcher(e.config.WorkingDir)
 	for _, enhancer := range e.watcherEnhancers {
 		watcher = enhancer(watcher)
@@ -46,8 +46,13 @@ func (e *Executor) runWatch(ctx context.Context) {
 	}()
 
 	e.wg.Go(func() error {
-		if err := watcher.Run(ctx); err != nil {
-			if ctx.Err() != context.Canceled {
+		err := watcher.Run(ctx)
+		wasCanceled := ctx.Err() == context.Canceled
+		cancel()
+		e.mu.Lock()
+		e.mu.Unlock()
+		if err != nil {
+			if !wasCanceled {
 				return err
 			}
 		}

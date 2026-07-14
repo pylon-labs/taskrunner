@@ -2,6 +2,7 @@ package taskrunner_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -121,6 +122,47 @@ func withTestWatcher() taskrunner.ExecutorOption {
 	return taskrunner.WithWatcherEnhancer(func(w watcher.Watcher) watcher.Watcher {
 		return newTestWatcher()
 	})
+}
+
+type failingWatcher struct {
+	events chan watcher.WatchEvent
+	err    error
+}
+
+func (w *failingWatcher) Events() <-chan watcher.WatchEvent {
+	return w.events
+}
+
+func (w *failingWatcher) Run(ctx context.Context) error {
+	close(w.events)
+	return w.err
+}
+
+func TestExecutorReturnsWatcherFailure(t *testing.T) {
+	watcherErr := errors.New("watcher failed")
+	executor := taskrunner.NewExecutor(
+		&config.Config{},
+		[]*taskrunner.Task{{Name: "task"}},
+		taskrunner.WithWatchMode(true),
+		taskrunner.WithWatcherEnhancer(func(w watcher.Watcher) watcher.Watcher {
+			return &failingWatcher{
+				events: make(chan watcher.WatchEvent),
+				err:    watcherErr,
+			}
+		}),
+	)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- executor.Run(context.Background(), []string{"task"}, &taskrunner.Runtime{})
+	}()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, watcherErr)
+	case <-time.After(time.Second):
+		t.Fatal("executor did not return after watcher failure")
+	}
 }
 
 // consumeUntil consumes the events channel until an event matching

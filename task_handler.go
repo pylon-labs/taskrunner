@@ -41,7 +41,7 @@ var TaskHandlerExecutionStateMap = map[taskExecutionState]TaskHandlerExecutionSt
 }
 
 func (h *TaskHandler) State() TaskHandlerExecutionState {
-	return TaskHandlerExecutionStateMap[h.execution.state]
+	return TaskHandlerExecutionStateMap[h.execution.getState()]
 }
 
 func (e *Executor) Tasks() []*TaskHandler {
