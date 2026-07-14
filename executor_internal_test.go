@@ -112,6 +112,77 @@ func TestKeepAliveTaskRestartsAfterTaskContextCancellation(t *testing.T) {
 	}
 }
 
+func TestKeepAliveInvalidationSynchronizesTaskCompletion(t *testing.T) {
+	config := &config.Config{}
+	started := make(chan struct{}, 2)
+	cancellationObserved := make(chan struct{}, 1)
+	allowCompletion := make(chan struct{})
+
+	task := &Task{
+		Name:      "keepalive",
+		KeepAlive: true,
+		Run: func(ctx context.Context, shellRun shell.ShellRun) error {
+			started <- struct{}{}
+			<-ctx.Done()
+			select {
+			case cancellationObserved <- struct{}{}:
+				<-allowCompletion
+			default:
+			}
+			return nil
+		},
+	}
+
+	executor := NewExecutor(config, []*Task{task})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- executor.Run(ctx, []string{task.Name}, &Runtime{})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to start")
+	}
+
+	executor.Invalidate(task, testInvalidationEvent{})
+	invalidationDone := make(chan struct{})
+	go func() {
+		executor.evaluateInvalidationPlan(false)
+		close(invalidationDone)
+	}()
+
+	select {
+	case <-cancellationObserved:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to observe invalidation cancellation")
+	}
+	close(allowCompletion)
+
+	select {
+	case <-invalidationDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for invalidation to finish after task completion")
+	}
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for keepalive task to restart after invalidation")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for executor to stop")
+	}
+}
+
 func TestDependentTaskStartsWithoutInvalidationDelay(t *testing.T) {
 	config := &config.Config{}
 	dependencyDone := make(chan struct{}, 1)
