@@ -157,11 +157,14 @@ func (e *Executor) publishEvent(event ExecutorEvent) {
 // runInvalidationLoop kicks off a background goroutine that plans and
 // runs re-executions after invalidations occur. It coalesces invalidations
 // every second.
-func (e *Executor) runInvalidationLoop() {
+func (e *Executor) runInvalidationLoop() <-chan struct{} {
 	timer := time.NewTimer(time.Second)
 	timer.Stop()
+	done := make(chan struct{})
 
 	go func() {
+		defer close(done)
+		defer timer.Stop()
 		for {
 			select {
 			case <-e.invalidationCh:
@@ -172,10 +175,11 @@ func (e *Executor) runInvalidationLoop() {
 
 			case <-timer.C:
 				e.evaluateInvalidationPlan(true)
-				go e.runPass()
 			}
 		}
 	}()
+
+	return done
 }
 
 // evaluateInvalidationPlan finds all tasks that have pending invalidations
@@ -187,32 +191,60 @@ func (e *Executor) evaluateInvalidationPlan(waitForFilesystemEvents bool) {
 		// task A needs, then we want to wait for the file events from task B to propagate
 		// before evaluating the new plan. We must rely on timing because we cannot
 		// follow and wait for the execution to come back through fswatch.
-		time.Sleep(time.Millisecond * 1000)
+		select {
+		case <-time.After(time.Second):
+		case <-e.ctx.Done():
+			return
+		}
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	type plannedInvalidation struct {
+		execution        *taskExecution
+		terminalCh       chan struct{}
+		invalidationDone chan struct{}
+		cancel           func()
+		event            *TaskInvalidatedEvent
+	}
 
-	var toInvalidate []*taskExecution
+	e.mu.Lock()
+	var invalidations []plannedInvalidation
 	for _, execution := range e.tasks {
-		if len(execution.pendingInvalidations) == 0 || execution.state == taskExecutionState_invalid {
+		reasons, terminalCh, invalidationDone, cancel, ok := execution.beginInvalidation()
+		if !ok {
 			continue
 		}
 
-		var reasons []InvalidationEvent
-		for reason := range execution.pendingInvalidations {
-			reasons = append(reasons, reason)
-		}
-
-		e.publishEvent(&TaskInvalidatedEvent{
-			simpleEvent: execution.simpleEvent(),
-			Reasons:     reasons,
+		invalidations = append(invalidations, plannedInvalidation{
+			execution:        execution,
+			terminalCh:       terminalCh,
+			invalidationDone: invalidationDone,
+			cancel:           cancel,
+			event: &TaskInvalidatedEvent{
+				simpleEvent: execution.simpleEvent(),
+				Reasons:     reasons,
+			},
 		})
+	}
+	e.mu.Unlock()
 
-		toInvalidate = append(toInvalidate, execution)
+	for _, invalidation := range invalidations {
+		e.publishEvent(invalidation.event)
+	}
+	for _, invalidation := range invalidations {
+		invalidation.cancel()
+	}
+	for _, invalidation := range invalidations {
+		<-invalidation.terminalCh
 	}
 
-	for _, execution := range toInvalidate {
-		execution.invalidate(e.ctx)
+	e.mu.Lock()
+	for _, invalidation := range invalidations {
+		invalidation.execution.finishInvalidation(e.ctx, invalidation.terminalCh)
+	}
+	e.mu.Unlock()
+
+	e.runPass()
+	for _, invalidation := range invalidations {
+		invalidation.execution.completeInvalidation(invalidation.invalidationDone)
 	}
 }
 
@@ -232,16 +264,18 @@ func (e *Executor) Invalidate(task *Task, event InvalidationEvent) {
 }
 
 func (e *Executor) Run(ctx context.Context, taskNames []string, runtime *Runtime) error {
-	e.ctx = ctx
+	executionCtx, cancel := context.WithCancel(ctx)
+	e.ctx = executionCtx
+	var invalidationLoopDone <-chan struct{}
 	defer func() {
+		cancel()
+		if invalidationLoopDone != nil {
+			<-invalidationLoopDone
+		}
 		for _, ch := range e.eventsChs {
 			close(ch)
 		}
 	}()
-	e.runInvalidationLoop()
-	if e.watchMode {
-		e.runWatch(ctx)
-	}
 
 	// Build up the DAG for task executions.
 	taskSet := make(taskSet)
@@ -250,7 +284,7 @@ func (e *Executor) Run(ctx context.Context, taskNames []string, runtime *Runtime
 		if task == nil {
 			return oops.Wrapf(errUndefinedTaskName, "task %s is not defined", taskName)
 		}
-		taskSet.add(ctx, task)
+		taskSet.add(executionCtx, task)
 	}
 
 	e.tasks = taskSet
@@ -285,10 +319,33 @@ func (e *Executor) Run(ctx context.Context, taskNames []string, runtime *Runtime
 		return errors
 	}
 
+	invalidationLoopDone = e.runInvalidationLoop()
+	if e.watchMode {
+		e.runWatch(executionCtx, cancel)
+	}
+
+	keepExecutorAlive := false
+	for task := range e.tasks {
+		keepExecutorAlive = keepExecutorAlive || task.KeepAlive
+	}
+	if keepExecutorAlive {
+		e.wg.Go(func() error {
+			<-executionCtx.Done()
+			// Synchronize with runPass so no task can be added after this
+			// lifecycle guard leaves the group.
+			e.mu.Lock()
+			e.mu.Unlock()
+			return nil
+		})
+	}
+
 	e.runPass()
 
 	// Wait on all tasks to exit before stopping.
 	errors = multierr.Append(errors, e.wg.Wait())
+	cancel()
+	<-invalidationLoopDone
+	invalidationLoopDone = nil
 
 	// Run all onStopHooks after stopping.
 	for _, hook := range runtime.onStopHooks {
@@ -618,22 +675,19 @@ func (e *Executor) showTaskFlagHelpText(taskName string) {
 
 // runPass kicks off tasks that are in an executable state.
 func (e *Executor) runPass() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.ctx.Err() != nil {
 		return
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	for task, execution := range e.tasks {
-		if execution.ShouldExecute() {
-			execution.state = taskExecutionState_running
-
-			func(task *Task, execution *taskExecution) {
+		if executionCtx, shouldExecute := execution.start(); shouldExecute {
+			func(task *Task, execution *taskExecution, executionCtx context.Context) {
 				e.wg.Go(func() error {
 					logger := e.provideEventLogger(task)
 
-					ctx := context.WithValue(execution.ctx, loggerKey{}, logger)
+					ctx := context.WithValue(executionCtx, loggerKey{}, logger)
 
 					e.publishEvent(&TaskStartedEvent{
 						simpleEvent: execution.simpleEvent(),
@@ -656,69 +710,74 @@ func (e *Executor) runPass() {
 						duration = time.Since(started)
 					}
 
+					execution.mu.Lock()
+					terminalCh := execution.terminalCh
+					var event ExecutorEvent
 					shouldResetCanceledKeepAlive := false
 					if ctx.Err() == context.Canceled {
-						wasInvalidated := execution.state == taskExecutionState_invalid
+						wasInvalidated := execution.state == taskExecutionState_invalid || execution.invalidating
 						// Only move ourselves to permanently canceled if taskrunner is shutting down. Note
 						// that the invalidation codepath already set the state as invalid, so there is
 						// no else statement.
 						if e.ctx.Err() != nil {
 							execution.state = taskExecutionState_canceled
-						} else if task.KeepAlive {
+						} else if task.KeepAlive && !execution.invalidating {
 							execution.state = taskExecutionState_invalid
 							shouldResetCanceledKeepAlive = execution.ctx.Err() != nil && !wasInvalidated
 						}
-						e.publishEvent(&TaskStoppedEvent{
+						event = &TaskStoppedEvent{
 							simpleEvent: execution.simpleEvent(),
-						})
+						}
 					} else if err != nil {
 						execution.state = taskExecutionState_error
-						e.publishEvent(&TaskFailedEvent{
+						event = &TaskFailedEvent{
 							simpleEvent: execution.simpleEvent(),
 							Error:       err,
-						})
+						}
 					} else if task.KeepAlive {
 						// A KeepAlive task should never exit cleanly on its own —
 						// treat it as an error so it gets restarted.
 						execution.state = taskExecutionState_error
-						e.publishEvent(&TaskFailedEvent{
+						event = &TaskFailedEvent{
 							simpleEvent: execution.simpleEvent(),
 							Error:       fmt.Errorf("keep-alive task %s exited unexpectedly", task.Name),
-						})
+						}
 					} else {
 						execution.state = taskExecutionState_done
-						e.publishEvent(&TaskCompletedEvent{
+						event = &TaskCompletedEvent{
 							simpleEvent: execution.simpleEvent(),
 							Duration:    duration,
-						})
+						}
 					}
 
-					// It's important that we flush the error/done states before
-					// terminating the channel. It's also important that possible
-					// invalidations occur after exit so that those channels do not block,
-					// waiting for this to complete.
-					execution.terminalCh <- struct{}{}
 					if shouldResetCanceledKeepAlive {
 						execution.ctx, execution.cancel = context.WithCancel(e.ctx)
 						execution.terminalCh = make(chan struct{}, 1)
+						execution.pendingInvalidations = make(map[InvalidationEvent]struct{})
 					}
+					shouldInvalidateStoppedKeepAlive := task.KeepAlive && execution.state == taskExecutionState_error
+					execution.mu.Unlock()
 
-					if task.KeepAlive && execution.state == taskExecutionState_error {
+					e.publishEvent(event)
+					terminalCh <- struct{}{}
+
+					if shouldInvalidateStoppedKeepAlive {
 						e.Invalidate(task, KeepAliveStopped{})
 					}
 
-					if err == nil {
+					if err == nil || ctx.Err() == context.Canceled {
 						e.evaluateInvalidationPlan(false)
+					} else {
+						e.runPass()
 					}
-
-					e.runPass()
+					execution.waitForInvalidation(terminalCh)
 					if err != nil && ctx.Err() != context.Canceled {
 						return err
 					}
 
 					return nil
 				})
-			}(task, execution)
+			}(task, execution, executionCtx)
 
 		}
 	}

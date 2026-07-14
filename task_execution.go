@@ -30,10 +30,14 @@ type taskExecution struct {
 	mu         sync.Mutex
 	definition *Task
 
-	ctx        context.Context
-	cancel     func()
-	state      taskExecutionState
-	terminalCh chan struct{}
+	ctx          context.Context
+	cancel       func()
+	state        taskExecutionState
+	invalidating bool
+	terminalCh   chan struct{}
+
+	invalidationDone       chan struct{}
+	invalidationTerminalCh chan struct{}
 
 	dependencies []*taskExecution
 	dependents   []*taskExecution
@@ -48,52 +52,115 @@ func (e *taskExecution) simpleEvent() *simpleEvent {
 	}
 }
 
-// ShouldExecute returns true if the taskExecution is marked
-// invalidated AND all of its dependencies have successfully completed.
-func (e *taskExecution) ShouldExecute() bool {
-	if e.state != taskExecutionState_invalid {
-		return false
-	}
-
-	ready := true
+// start transitions an executable task to running and returns its execution context.
+func (e *taskExecution) start() (context.Context, bool) {
 	for _, dep := range e.dependencies {
-		if dep.state != taskExecutionState_done {
-			ready = false
+		if !dep.isDone() {
+			return nil, false
 		}
 	}
-	return ready
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state != taskExecutionState_invalid || e.invalidating {
+		return nil, false
+	}
+
+	e.state = taskExecutionState_running
+	return e.ctx, true
 }
 
-// invalidate stops the task if running, resets the execution
-// state for the task, then invalidates all dependents.
-func (e *taskExecution) invalidate(executionCtx context.Context) {
-	if e.state == taskExecutionState_invalid || e.state == taskExecutionState_canceled {
+func (e *taskExecution) getState() taskExecutionState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.state
+}
+
+func (e *taskExecution) isDone() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.state == taskExecutionState_done && !e.invalidating
+}
+
+// beginInvalidation atomically claims a task and returns the cancellation and
+// completion signals needed to finish its invalidation without holding a mutex.
+func (e *taskExecution) beginInvalidation() ([]InvalidationEvent, chan struct{}, chan struct{}, func(), bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.pendingInvalidations) == 0 ||
+		e.state == taskExecutionState_invalid ||
+		e.state == taskExecutionState_canceled ||
+		e.invalidating {
+		return nil, nil, nil, nil, false
+	}
+
+	reasons := make([]InvalidationEvent, 0, len(e.pendingInvalidations))
+	for reason := range e.pendingInvalidations {
+		reasons = append(reasons, reason)
+	}
+
+	e.invalidating = true
+	e.invalidationDone = make(chan struct{})
+	e.invalidationTerminalCh = e.terminalCh
+	return reasons, e.terminalCh, e.invalidationDone, e.cancel, true
+}
+
+func (e *taskExecution) finishInvalidation(executionCtx context.Context, terminalCh <-chan struct{}) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.invalidating {
 		return
 	}
 
-	e.state = taskExecutionState_invalid
-	e.cancel()
 	e.ctx, e.cancel = context.WithCancel(executionCtx)
-	<-e.terminalCh
-	e.terminalCh = make(chan struct{}, 1)
+	if executionCtx.Err() != nil {
+		e.state = taskExecutionState_canceled
+	} else {
+		e.state = taskExecutionState_invalid
+	}
+	e.invalidating = false
+	if e.terminalCh == terminalCh {
+		e.terminalCh = make(chan struct{}, 1)
+	}
 	e.pendingInvalidations = make(map[InvalidationEvent]struct{})
+}
+
+func (e *taskExecution) completeInvalidation(invalidationDone chan struct{}) {
+	e.mu.Lock()
+	if e.invalidationDone == invalidationDone {
+		e.invalidationDone = nil
+		e.invalidationTerminalCh = nil
+	}
+	close(invalidationDone)
+	e.mu.Unlock()
+}
+
+func (e *taskExecution) waitForInvalidation(terminalCh chan struct{}) {
+	e.mu.Lock()
+	var invalidationDone chan struct{}
+	if e.invalidationTerminalCh == terminalCh {
+		invalidationDone = e.invalidationDone
+	}
+	e.mu.Unlock()
+	if invalidationDone != nil {
+		<-invalidationDone
+	}
 }
 
 // Invalidate marks a taskExecution as invalid. It does not produce
 // side effects by itself.
 func (e *taskExecution) Invalidate(event InvalidationEvent) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if e.state == taskExecutionState_invalid {
-		return false
-	}
-
 	if e.definition.ShouldInvalidate != nil && !e.definition.ShouldInvalidate(event) {
 		return false
 	}
 
+	e.mu.Lock()
+	if e.state == taskExecutionState_invalid {
+		e.mu.Unlock()
+		return false
+	}
 	e.pendingInvalidations[event] = struct{}{}
+	e.mu.Unlock()
 
 	for _, dep := range e.dependents {
 		dep.Invalidate(DependencyChange{
