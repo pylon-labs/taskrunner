@@ -1,0 +1,24 @@
+executor_internal_test.go
+  s_799567294b9ef6::t_64e1842043ebca 112,116,123-124,126,132-135,137-141,143,164,169-170,175-176
+  s_799567294b9ef6::t_0d701481b98a68 107,110,115,117-122,125,127-131,136,142,144-163,165-168,171-174
+  s_799567294b9ef6::t_303d220ae27805 106
+  s_799567294b9ef6::t_8ed05bad80aa13 108-109
+  s_799567294b9ef6::t_2484eceb30f382 111
+  s_799567294b9ef6::t_fe63d9e122d038 113-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "f7b00228d56201f5d0552d737ab8caacd7f00b00",
+  "prompts": {},
+  "sessions": {
+    "s_799567294b9ef6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f61ae-77f8-7721-8ab2-fc2b15726e13",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Jesse Chen <jesse@usepylon.com>"
+    }
+  }
+}
