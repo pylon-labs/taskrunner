@@ -1,0 +1,25 @@
+.github/workflows/main.yml
+  s_a8e8cdc046cdc6::t_fe3c3b2690ce55 48,52-60,62
+README.md
+  s_a8e8cdc046cdc6::t_345c889c3b0ed0 132-142,146-178,182-190
+shell/cancellation.go
+  s_a8e8cdc046cdc6::t_285a7367a546f4 15,19-20
+shell/shell_test.go
+  s_a8e8cdc046cdc6::t_31e124003a8873 221-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a51cd111cb53d5330f0f78a414e66f2f88cd7393",
+  "prompts": {},
+  "sessions": {
+    "s_a8e8cdc046cdc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cb50-d9d0-71d3-bacd-35b270e70b7b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Alex Wu <alex@usepylon.com>"
+    }
+  }
+}
