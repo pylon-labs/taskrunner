@@ -1,0 +1,23 @@
+README.md
+  s_ffe5648b505e13::t_e77dd9a65f8109 142-144
+shell/cancellation.go
+  s_ffe5648b505e13::t_1c3f1b0e962c34 18-19,53-56
+shell/shell_test.go
+  s_ffe5648b505e13::t_762da2ac64cba5 95,101,115-118,156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bbc4cd41145eb7f352d7413e8ee839dde7cf0b59",
+  "prompts": {},
+  "sessions": {
+    "s_ffe5648b505e13": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86f15eb2-f6ed-4f58-94e9-12e259b6adb0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Alex Wu <alex@usepylon.com>"
+    }
+  }
+}
