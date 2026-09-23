@@ -15,3 +15,40 @@ jobs:
           cache-dependency-path: go.sum
       - name: Test
         run: go test -v ./... -coverprofile=coverage.out -covermode=atomic -bench=./...
+
+  Cancellation:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Set up pnpm regression fixture
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.27.1
+          run_install: false
+      - name: Headless cancellation and race checks
+        env:
+          TASKRUNNER_TEST_PNPM: '1'
+        run: go test -race ./shell . -run 'TestRun|TestShellProcess|TestShellTaskRestartsAfterGracefulCancellation' -count=1 -timeout=2m
+      - name: Cancellation with a controlling terminal
+        env:
+          TASKRUNNER_TEST_PNPM: '1'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            script -q -e -c "go test ./shell -run '^TestRunPnpmCancellation$' -count=1 -timeout=1m" /dev/null
+          else
+            script -q /dev/null go test ./shell -run '^TestRunPnpmCancellation$' -count=1 -timeout=1m
+          fi
