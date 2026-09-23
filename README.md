@@ -115,3 +115,38 @@ It is possible to add a `workspace.taskrunner.json` file, this contains the defa
   ]
 }
 ```
+
+### Graceful shell cancellation
+
+Shell commands use the interpreter's default cancellation behavior unless the
+caller opts in to `shell.GracefulCancellation(grace)`. Supply a positive duration
+through `ShellRunOptions` (or directly to `shell.Run`). For example:
+
+```go
+taskrunner.Run(taskrunner.ExecutorOptions(
+    taskrunner.ShellRunOptions(shell.GracefulCancellation(5 * time.Second)),
+))
+```
+
+On Unix, the option sends SIGTERM to the immediate external command when its
+context is cancelled. This lets wrappers such as pnpm 11.27.1 relay programmatic
+shutdown: its terminal-attached SIGINT handling assumes the terminal already
+signalled its children, which is not true for taskrunner's PID-only signal.
+Windows and Plan 9 terminate the immediate process instead.
+
+`os/exec.Cmd.WaitDelay` gives the command the specified time to exit before
+killing it and closing inherited I/O pipes. It also bounds pipe draining after
+normal process exit, returning an error if output cannot be fully drained.
+Cancellation is returned as a context error, including when graceful cleanup
+exits successfully. Normal shell exit codes and redirects are preserved.
+
+This is cooperative cancellation, not process-tree containment. A descendant
+that ignores termination or sits behind a non-forwarding wrapper may survive
+forced shutdown. Arbitrary blocking readers/writers and Go task functions must
+still cooperate with cancellation. The executor waits for task functions to
+return; it does not independently verify every descendant has exited.
+
+The shell regression tests use self-contained process fixtures. Set
+`TASKRUNNER_TEST_PNPM=1` with Node and pnpm 11.27.1 on PATH to additionally test
+lifecycle and exec cancellation. CI runs these tests headlessly and with a
+controlling terminal on Linux and macOS.
