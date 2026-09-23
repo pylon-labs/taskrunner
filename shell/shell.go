@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/interp"
@@ -19,6 +20,9 @@ type runConfig struct {
 	stderr io.Writer
 	env    map[string]string
 	dir    string
+
+	gracefulCancellation bool
+	cancellationGrace    time.Duration
 }
 
 // RunOption configures execution of a shell command.
@@ -80,6 +84,10 @@ func Run(ctx context.Context, command string, opts ...RunOption) error {
 		opt(cfg)
 	}
 
+	if cfg.gracefulCancellation && cfg.cancellationGrace <= 0 {
+		return fmt.Errorf("cancellation grace must be positive")
+	}
+
 	// Default std streams
 	if cfg.stdin == nil {
 		cfg.stdin = os.Stdin
@@ -93,6 +101,12 @@ func Run(ctx context.Context, command string, opts ...RunOption) error {
 
 	runnerOpts := []interp.RunnerOption{
 		interp.StdIO(cfg.stdin, cfg.stdout, cfg.stderr),
+	}
+
+	if cfg.gracefulCancellation {
+		runnerOpts = append(runnerOpts, interp.ExecHandlers(func(_ interp.ExecHandlerFunc) interp.ExecHandlerFunc {
+			return cancellationHandler(cfg.cancellationGrace)
+		}))
 	}
 
 	// Build environment pairs
