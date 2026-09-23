@@ -1,0 +1,33 @@
+vendor/github.com/stretchr/testify/require/doc.go
+  s_a8e8cdc046cdc6::t_4f263339e8a375 1-29
+vendor/github.com/stretchr/testify/require/forward_requirements.go
+  s_a8e8cdc046cdc6::t_48eebc27a1b01b 1-16
+vendor/github.com/stretchr/testify/require/require.go
+  s_a8e8cdc046cdc6::t_8326b425ff5387 1-2031
+vendor/github.com/stretchr/testify/require/require.go.tmpl
+  s_a8e8cdc046cdc6::t_f9efdc2aaafd95 1-6
+vendor/github.com/stretchr/testify/require/require_forward.go
+  s_a8e8cdc046cdc6::t_f188254784854f 1-1599
+vendor/github.com/stretchr/testify/require/require_forward.go.tmpl
+  s_a8e8cdc046cdc6::t_60c9fbecd00d5b 1-5
+vendor/github.com/stretchr/testify/require/requirements.go
+  s_a8e8cdc046cdc6::t_77e0944e081e44 1-29
+vendor/modules.txt
+  s_a8e8cdc046cdc6::t_8b6c12c987b076 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5d39843a626b7cdbeebc161bba4d7d2a2d1bad66",
+  "prompts": {},
+  "sessions": {
+    "s_a8e8cdc046cdc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cb50-d9d0-71d3-bacd-35b270e70b7b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Alex Wu <alex@usepylon.com>"
+    }
+  }
+}
