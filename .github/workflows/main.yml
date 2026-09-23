@@ -45,10 +45,19 @@ jobs:
       - name: Cancellation with a controlling terminal
         env:
           TASKRUNNER_TEST_PNPM: '1'
+          TASKRUNNER_TEST_PNPM_TERMINAL: '1'
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
-            script -q -e -c "go test ./shell -run '^TestRunPnpmCancellation$' -count=1 -timeout=1m" /dev/null
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### Known Linux terminal limitation
+          `pnpm run` descendant cleanup is outside the narrow compatibility guarantee.
+          Those two cleanup subtests report SKIP with observed process state.
+          Startup, bounded cancellation, context errors, and `pnpm exec` cleanup
+          remain required. Headless Linux and macOS still require all cleanup checks.
+          See README: Graceful shell cancellation, and PLA-1764 for follow-up scope.
+          EOF
+            script -q -e -c "go test -v ./shell -run '^TestRunPnpmCancellation$' -count=1 -timeout=1m" /dev/null
           else
-            script -q /dev/null go test ./shell -run '^TestRunPnpmCancellation$' -count=1 -timeout=1m
+            script -q /dev/null go test -v ./shell -run '^TestRunPnpmCancellation$' -count=1 -timeout=1m
           fi

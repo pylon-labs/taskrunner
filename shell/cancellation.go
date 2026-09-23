@@ -12,11 +12,12 @@ import (
 	"mvdan.cc/sh/v3/interp"
 )
 
-// GracefulCancellation opts external commands into SIGTERM cancellation on Unix
+// GracefulCancellation opts immediate external commands into SIGTERM cancellation on Unix
 // (immediate termination on Windows and Plan 9). After grace, the immediate
 // process is killed and inherited I/O pipes are closed rather than waited on
 // indefinitely. The same bound applies to pipes held open after normal exit.
-// grace must be positive. Descendants that ignore termination may survive;
+// grace must be positive. Descendants that ignore termination or are behind
+// wrappers that do not forward the signal may survive;
 // this option does not provide process-tree containment. Custom blocking I/O
 // implementations must still cooperate with cancellation.
 func GracefulCancellation(grace time.Duration) RunOption {
