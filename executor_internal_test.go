@@ -2,12 +2,18 @@ package taskrunner
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pylon-labs/taskrunner/config"
 	"github.com/pylon-labs/taskrunner/shell"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testInvalidationEvent struct{}
@@ -658,4 +664,54 @@ func TestParseTaskOptionsListToMap(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestShellTaskRestartsAfterGracefulCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("POSIX shell fixture")
+	}
+	dir := t.TempDir()
+	var generation atomic.Int32
+	started := make(chan struct{}, 3)
+	task := &Task{Name: "graceful", KeepAlive: true}
+	task.Run = func(ctx context.Context, run shell.ShellRun) error {
+		id := generation.Add(1)
+		started <- struct{}{}
+		if id > 1 {
+			if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("stopped-%d", id-1))); err != nil {
+				return fmt.Errorf("replacement started before previous cleanup: %w", err)
+			}
+		}
+		return run(ctx, `sh -c 'trap "echo stopped > \"$STOPPED\"; exit 0" TERM; trap "" INT; echo ready > "$READY"; while :; do sleep 0.05; done'`, shell.Env(map[string]string{
+			"READY":   filepath.Join(dir, fmt.Sprintf("ready-%d", id)),
+			"STOPPED": filepath.Join(dir, fmt.Sprintf("stopped-%d", id)),
+		}))
+	}
+	executor := NewExecutor(&config.Config{}, []*Task{task}, ShellRunOptions(shell.GracefulCancellation(time.Second)))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- executor.Run(ctx, []string{task.Name}, &Runtime{}) }()
+	for id := 1; id <= 3; id++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("task did not start")
+		}
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(filepath.Join(dir, fmt.Sprintf("ready-%d", id)))
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond)
+		if id < 3 {
+			executor.Invalidate(task, testInvalidationEvent{})
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor shutdown hung")
+	}
+	_, err := os.Stat(filepath.Join(dir, "stopped-3"))
+	assert.NoError(t, err)
 }
