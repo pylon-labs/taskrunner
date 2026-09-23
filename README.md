@@ -139,7 +139,9 @@ terminal ownership.
 `os/exec.Cmd.WaitDelay` bounds waiting after cancellation or immediate-process
 exit. When the delay expires, it kills the immediate process if necessary and
 closes inherited I/O pipes that are still open. It also bounds pipe draining
-after normal process exit, returning an error if output cannot be fully drained.
+after normal process exit: if a descendant still holds output open when the
+delay expires, the command prints `<name>: output still open <grace> after exit;
+closed it` to stderr and exits with status 1, so `||`, `&&`, and `set -e` apply.
 Cancellation is returned as a context error, including when graceful cleanup
 exits successfully. Normal shell exit codes and redirects are preserved.
 
@@ -163,6 +165,11 @@ a package-manager version; checking inside the project can hide the old launcher
 Only the immediate process is forcibly killed. Descendants that ignore signals,
 move to another process group/session, or sit behind non-forwarding wrappers may
 survive. Closing inherited pipes does not prove that descendants have exited.
+The post-exit bound applies only to output that `os/exec` copies through its own
+pipe. Output written directly to an OS file, such as the default `os.Stderr`, is
+not waited on, so a descendant can keep writing after the command returns. In a
+shell pipeline, the next stage reads until every writer closes the pipe, so the
+pipeline waits for descendants that hold it, with no bound.
 Arbitrary blocking readers/writers and Go task functions must still cooperate
 with cancellation. The executor waits for task functions to return; it does not
 independently verify that their ports or other resources have been released.

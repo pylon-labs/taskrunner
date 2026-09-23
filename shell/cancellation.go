@@ -15,7 +15,8 @@ import (
 // GracefulCancellation opts immediate external commands into SIGTERM cancellation on Unix
 // (immediate termination on Windows and Plan 9). After grace, the immediate
 // process is killed and inherited I/O pipes are closed rather than waited on
-// indefinitely. The same bound applies to pipes held open after normal exit.
+// indefinitely. The same bound applies to pipes held open after normal exit;
+// that case reports a message on stderr and exit status 1.
 // grace must be positive. Descendants that ignore termination or are behind
 // wrappers that do not forward the signal may survive;
 // this option does not provide process-tree containment. Custom blocking I/O
@@ -48,6 +49,10 @@ func cancellationHandler(grace time.Duration) interp.ExecHandlerFunc {
 		err = cmd.Run()
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if errors.Is(err, exec.ErrWaitDelay) {
+			fmt.Fprintf(hc.Stderr, "%s: output still open %s after exit; closed it\n", args[0], grace)
+			return interp.NewExitStatus(1)
 		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

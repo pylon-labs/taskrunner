@@ -92,12 +92,13 @@ func TestRunGracefulCancellation(t *testing.T) {
 			ready, stopped := filepath.Join(dir, "ready"), filepath.Join(dir, "stopped")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			var stderr bytes.Buffer
 			done := make(chan error, 1)
 			go func() {
 				done <- Run(ctx, `"$TASKRUNNER_HELPER_EXE" -test.run=^TestShellProcess$`, Env(map[string]string{
 					"TASKRUNNER_HELPER_EXE": executable, "TASKRUNNER_SHELL_HELPER": mode,
 					"TASKRUNNER_READY": ready, "TASKRUNNER_STOPPED": stopped,
-				}), Stdout(io.Discard), Stderr(io.Discard), GracefulCancellation(500*time.Millisecond))
+				}), Stdout(io.Discard), Stderr(&stderr), GracefulCancellation(500*time.Millisecond))
 			}()
 			waitForFile(t, ready)
 			process := fixtureProcess(t, ready)
@@ -111,7 +112,10 @@ func TestRunGracefulCancellation(t *testing.T) {
 			select {
 			case err := <-done:
 				if mode == "orphan" {
-					assert.ErrorIs(t, err, exec.ErrWaitDelay)
+					code, ok := interp.IsExitStatus(err)
+					assert.True(t, ok, "orphaned pipe must be an exit status, got %v", err)
+					assert.Equal(t, uint8(1), code)
+					assert.Contains(t, stderr.String(), "output still open 500ms after exit")
 				} else {
 					assert.ErrorIs(t, err, context.Canceled)
 				}
@@ -149,6 +153,8 @@ func TestRunCancellationShellSemantics(t *testing.T) {
 		{name: "signal status", command: `sh -c 'kill -TERM $$'`, status: 143},
 		{name: "missing command", command: `taskrunner-command-that-does-not-exist`, status: 127},
 		{name: "redirect", command: `sh -c 'printf redirected' > output; cat output`, want: "redirected"},
+		{name: "background output holder", command: `sh -c 'sleep 2 &'; printf after`, want: "after"},
+		{name: "background output holder after failure", command: `sh -c 'sleep 2 & exit 3'`, status: 3},
 	}
 	for _, policy := range []string{"legacy", "graceful"} {
 		for _, tc := range cases {
