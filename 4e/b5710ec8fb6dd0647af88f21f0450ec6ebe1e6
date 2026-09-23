@@ -1,0 +1,27 @@
+README.md
+  s_a8e8cdc046cdc6::t_72fdf0991e8c15 118-152
+shell/cancellation.go
+  s_a8e8cdc046cdc6::t_c11d5bd0938ad9 1-81
+shell/cancellation_other.go
+  s_a8e8cdc046cdc6::t_3cfbe9584368fc 1-16
+shell/cancellation_unix.go
+  s_a8e8cdc046cdc6::t_533836c74cd2f6 1-20
+shell/shell.go
+  s_a8e8cdc046cdc6::t_70ad1a35f34c0b 9,23-25,87-90,106-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4eb5710ec8fb6dd0647af88f21f0450ec6ebe1e6",
+  "prompts": {},
+  "sessions": {
+    "s_a8e8cdc046cdc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cb50-d9d0-71d3-bacd-35b270e70b7b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Alex Wu <alex@usepylon.com>"
+    }
+  }
+}
