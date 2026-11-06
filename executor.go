@@ -156,7 +156,7 @@ func (e *Executor) publishEvent(event ExecutorEvent) {
 
 // runInvalidationLoop kicks off a background goroutine that plans and
 // runs re-executions after invalidations occur. It coalesces invalidations
-// every second.
+// after a short quiet period.
 func (e *Executor) runInvalidationLoop() <-chan struct{} {
 	timer := time.NewTimer(time.Second)
 	timer.Stop()
@@ -168,7 +168,7 @@ func (e *Executor) runInvalidationLoop() <-chan struct{} {
 		for {
 			select {
 			case <-e.invalidationCh:
-				timer.Reset(time.Second)
+				timer.Reset(200 * time.Millisecond)
 
 			case <-e.ctx.Done():
 				return
@@ -192,7 +192,7 @@ func (e *Executor) evaluateInvalidationPlan(waitForFilesystemEvents bool) {
 		// before evaluating the new plan. We must rely on timing because we cannot
 		// follow and wait for the execution to come back through fswatch.
 		select {
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 		case <-e.ctx.Done():
 			return
 		}
