@@ -7,9 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mattn/go-zglob"
@@ -18,132 +19,153 @@ import (
 	"github.com/pylon-labs/taskrunner/shell"
 )
 
-var (
-	stdlibLookupMu = sync.Mutex{}
-	stdlibLookup   = make(map[string]*bool)
-)
+const buildBatchWindow = 50 * time.Millisecond
 
-func isStdLib(pkg string) bool {
-	stdlibLookupMu.Lock()
-	defer stdlibLookupMu.Unlock()
-	if stdlibLookup[pkg] != nil {
-		return *stdlibLookup[pkg]
-	}
-
-	_, err := os.Stat(filepath.Join(runtime.GOROOT(), "src", pkg))
-	isStdLib := err == nil
-	stdlibLookup[pkg] = &isStdLib
-	return isStdLib
+type buildResult struct {
+	dependencies []string
+	err          error
 }
 
 type request struct {
-	Package string
-	Logger  *taskrunner.Logger
+	pkg      string
+	ctx      context.Context
+	shellRun shell.ShellRun
+	result   chan buildResult
 }
 
-// GoBuilder is a batcher for `go build` runs. It coalesces builds into 500ms batches.
+// GoBuilder batches compilation and dependency discovery for concurrently requested packages.
 type GoBuilder struct {
-	packages map[string]struct{}
-	loggers  map[*taskrunner.Logger]struct{}
-	timer    *time.Timer
 	requests chan request
 
-	mu       sync.Mutex
-	doneCh   chan struct{}
-	shellRun shell.ShellRun
-	ctx      context.Context
-
-	err error
-
-	// Options:
+	// Options must be set before the first build.
 	LogToStdout bool
 	ModuleRoot  string
 }
 
 func NewGoBuilder() *GoBuilder {
-	timer := time.NewTimer(time.Second)
-	timer.Stop()
-
-	ch := make(chan request, 128)
-	builder := &GoBuilder{
-		timer:    timer,
-		packages: make(map[string]struct{}),
-		loggers:  make(map[*taskrunner.Logger]struct{}),
-		requests: ch,
-	}
-
+	b := &GoBuilder{requests: make(chan request, 128)}
 	go func() {
-		for {
-			select {
-			case request := <-ch:
-				builder.packages[request.Package] = struct{}{}
-				builder.loggers[request.Logger] = struct{}{}
-				timer.Reset(time.Millisecond * 500)
-
-			case <-timer.C:
-				builder.build()
+		for first := range b.requests {
+			requests := []request{first}
+			timer := time.NewTimer(buildBatchWindow)
+		collect:
+			for {
+				select {
+				case r := <-b.requests:
+					requests = append(requests, r)
+				case <-timer.C:
+					break collect
+				}
 			}
+			b.build(requests)
 		}
 	}()
-
-	return builder
+	return b
 }
 
-func (b *GoBuilder) build() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	packages := make([]string, 0, len(b.packages))
-	for pkg := range b.packages {
-		packages = append(packages, pkg)
+func (b *GoBuilder) build(requests []request) {
+	active := requests[:0]
+	for _, r := range requests {
+		if err := r.ctx.Err(); err != nil {
+			r.result <- buildResult{err: err}
+		} else {
+			active = append(active, r)
+		}
 	}
-	pkgList := strings.Join(packages, " ")
+	if len(active) == 0 {
+		return
+	}
+
+	// Cancel shared work only when every caller has canceled. A restarting task
+	// must not cancel compilation for the other services in the same batch.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(active[0].ctx))
+	defer cancel()
+	var canceled atomic.Int32
+	for _, r := range active {
+		stop := context.AfterFunc(r.ctx, func() {
+			if canceled.Add(1) == int32(len(active)) {
+				cancel()
+			}
+		})
+		defer stop()
+	}
+
+	packages := make(map[string]struct{})
+	loggers := make(map[*taskrunner.Logger]struct{})
+	for _, r := range active {
+		packages[r.pkg] = struct{}{}
+		if logger := taskrunner.LoggerFromContext(r.ctx); logger != nil {
+			loggers[logger] = struct{}{}
+		}
+	}
+	pkgList := make([]string, 0, len(packages))
+	for pkg := range packages {
+		pkgList = append(pkgList, fmt.Sprintf("%q", pkg))
+	}
+	sort.Strings(pkgList)
+	args := strings.Join(pkgList, " ")
 
 	var stdout, stderr io.Writer
 	if b.LogToStdout {
 		stdout = &clireporter.PrefixedWriter{Writer: os.Stdout, Prefix: "go/build/dev", Separator: ">"}
 		stderr = &clireporter.PrefixedWriter{Writer: os.Stderr, Prefix: "go/build/dev", Separator: ">"}
 	} else {
-		stdouts := make([]io.Writer, 0, len(b.loggers))
-		stderrs := make([]io.Writer, 0, len(b.loggers))
-		for l := range b.loggers {
-			stdouts = append(stdouts, l.Stdout)
-			stderrs = append(stderrs, l.Stdout)
+		var stdouts, stderrs []io.Writer
+		for logger := range loggers {
+			stdouts = append(stdouts, logger.Stdout)
+			stderrs = append(stderrs, logger.Stderr)
 		}
-		stdout = io.MultiWriter(stdouts...)
-		stderr = io.MultiWriter(stderrs...)
+		stdout, stderr = io.MultiWriter(stdouts...), io.MultiWriter(stderrs...)
 	}
-
-	fmt.Fprintf(stdout, "building packages: %s", pkgList)
-	b.err = shell.Run(b.ctx, fmt.Sprintf("go install -v %s", pkgList), shell.Stdout(stdout), shell.Stderr(stderr), shell.Dir(b.ModuleRoot))
+	run := active[0].shellRun
+	fmt.Fprintf(stdout, "building packages: %s\n", args)
+	err := run(ctx, "go install -v "+args, shell.Stdout(stdout), shell.Stderr(stderr), shell.Dir(b.ModuleRoot))
+	dependencies := make(map[string][]string)
+	if err == nil {
+		var output bytes.Buffer
+		// One traversal shares Go's package loading across every binary in the batch.
+		err = run(ctx, `go list -f '{{.ImportPath}} {{join .Deps " "}}' `+args,
+			shell.Stdout(&output), shell.Stderr(stderr), shell.Dir(b.ModuleRoot))
+		if err == nil {
+			for _, line := range strings.Split(output.String(), "\n") {
+				fields := strings.Fields(line)
+				if len(fields) > 0 {
+					dependencies[fields[0]] = fields[1:]
+				}
+			}
+		}
+	}
 	fmt.Fprintln(stdout, "done building packages")
-
-	close(b.doneCh)
-	b.doneCh = nil
-
-	// Clear the package and logger list.
-	b.packages = make(map[string]struct{})
-	b.loggers = make(map[*taskrunner.Logger]struct{})
+	for _, r := range active {
+		result := buildResult{dependencies: dependencies[r.pkg], err: err}
+		if result.err == nil {
+			if _, ok := dependencies[r.pkg]; !ok {
+				result.err = fmt.Errorf("go list returned no dependencies for %s", r.pkg)
+			}
+		}
+		r.result <- result
+	}
 }
 
-// Build schedules a go build and waits for its completion. Note that since builds are batched,
-// the returned error may or may not be related to the requested package.
+// Build schedules a build and waits for its batch's completion.
 func (b *GoBuilder) Build(ctx context.Context, shellRun shell.ShellRun, pkg string) error {
-	b.requests <- request{
-		Package: pkg,
-		Logger:  taskrunner.LoggerFromContext(ctx),
-	}
+	return b.buildWithDependencies(ctx, shellRun, pkg).err
+}
 
-	b.mu.Lock()
-	b.shellRun = shellRun
-	b.ctx = ctx
-	if b.doneCh == nil {
-		b.doneCh = make(chan struct{}, 0)
+func (b *GoBuilder) buildWithDependencies(ctx context.Context, shellRun shell.ShellRun, pkg string) buildResult {
+	result := make(chan buildResult, 1)
+	select {
+	case b.requests <- request{pkg: pkg, ctx: ctx, shellRun: shellRun, result: result}:
+	case <-ctx.Done():
+		return buildResult{err: ctx.Err()}
 	}
-	b.mu.Unlock()
-
-	<-b.doneCh
-	return b.err
+	// Keep task log subscriptions alive until shared work has stopped writing.
+	// Returning on cancellation here could let the executor close them mid-build.
+	r := <-result
+	if err := ctx.Err(); err != nil {
+		return buildResult{err: err}
+	}
+	return r
 }
 
 // buildBinder provides hooks for finding the dependencies of a package
@@ -152,6 +174,7 @@ func (b *GoBuilder) Build(ctx context.Context, shellRun shell.ShellRun, pkg stri
 type buildBinder struct {
 	pkg             string
 	pkgDependencies []string
+	mu              sync.RWMutex
 }
 
 func newBuildBinder(pkg string) *buildBinder {
@@ -159,20 +182,19 @@ func newBuildBinder(pkg string) *buildBinder {
 	return binder
 }
 
-func (b *buildBinder) saveDependencies(ctx context.Context, root string, shellRun shell.ShellRun) error {
-	var buffer bytes.Buffer
-	if err := shellRun(ctx, fmt.Sprintf("go list -f '{{ .Deps }}' %s", b.pkg), shell.Stdout(&buffer), shell.Dir(root)); err != nil {
-		return err
+func (b *buildBinder) saveDependencies(dependencies []string) {
+	patterns := make([]string, 0, len(dependencies)+1)
+	for _, dep := range append(append([]string{}, dependencies...), b.pkg) {
+		patterns = append(patterns, filepath.Join("**/", dep, "/*.go"))
 	}
-
-	dependencies := strings.Split(strings.TrimSuffix(strings.TrimPrefix(buffer.String(), "["), "]"), " ")
-	for _, dep := range dependencies {
-		b.pkgDependencies = append(b.pkgDependencies, filepath.Join("**/", dep, "/*.go"))
-	}
-	return nil
+	b.mu.Lock()
+	b.pkgDependencies = patterns
+	b.mu.Unlock()
 }
 
 func (b *buildBinder) shouldInvalidate(event taskrunner.InvalidationEvent) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	switch event := event.(type) {
 	case taskrunner.FileChange:
 		// Bail out if we have not yet recorded any dependencies, i.e.
@@ -194,11 +216,7 @@ func (b *buildBinder) shouldInvalidate(event taskrunner.InvalidationEvent) bool 
 			return false
 		}
 
-		for _, dep := range append(b.pkgDependencies, filepath.Join("**/", b.pkg, "/*.go")) {
-			// Ignore dependencies that are part of the std lib.
-			if isStdLib(dep) {
-				continue
-			}
+		for _, dep := range b.pkgDependencies {
 			if ok, _ := zglob.Match(dep, event.File); ok {
 				return true
 			}
@@ -224,13 +242,11 @@ func (builder *GoBuilder) WrapWithGoBuild(pkg string) taskrunner.TaskOption {
 		// be thrown in the from the registry when the task is added.
 		if task.Run != nil {
 			newTask.Run = func(ctx context.Context, shellRun shell.ShellRun) error {
-				if err := builder.Build(ctx, shellRun, pkg); err != nil {
-					return err
+				result := builder.buildWithDependencies(ctx, shellRun, pkg)
+				if result.err != nil {
+					return result.err
 				}
-
-				if err := buildBinder.saveDependencies(ctx, builder.ModuleRoot, shellRun); err != nil {
-					return err
-				}
+				buildBinder.saveDependencies(result.dependencies)
 
 				if task.Run != nil {
 					return task.Run(ctx, shellRun)
@@ -240,13 +256,11 @@ func (builder *GoBuilder) WrapWithGoBuild(pkg string) taskrunner.TaskOption {
 			}
 		} else {
 			newTask.RunWithFlags = func(ctx context.Context, shellRun shell.ShellRun, flags map[string]taskrunner.FlagArg) error {
-				if err := builder.Build(ctx, shellRun, pkg); err != nil {
-					return err
+				result := builder.buildWithDependencies(ctx, shellRun, pkg)
+				if result.err != nil {
+					return result.err
 				}
-
-				if err := buildBinder.saveDependencies(ctx, builder.ModuleRoot, shellRun); err != nil {
-					return err
-				}
+				buildBinder.saveDependencies(result.dependencies)
 
 				if task.RunWithFlags != nil {
 					return task.RunWithFlags(ctx, shellRun, flags)
