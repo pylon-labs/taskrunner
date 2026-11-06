@@ -3,6 +3,7 @@ package taskrunner_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -262,4 +263,65 @@ func TestExecutorInvalidations(t *testing.T) {
 		mockA.Reset()
 		mockB.Reset()
 	}
+}
+
+type taskrunnerPerformanceWatcher struct {
+	events chan watcher.WatchEvent
+}
+
+func (w *taskrunnerPerformanceWatcher) Events() <-chan watcher.WatchEvent { return w.events }
+func (w *taskrunnerPerformanceWatcher) Run(ctx context.Context) error {
+	<-ctx.Done()
+	close(w.events)
+	return nil
+}
+
+func TestTaskrunnerWatchPreservesGeneratorOrdering(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var generations atomic.Int32
+	generator := &taskrunner.Task{
+		Name: "generator", Sources: []string{"schema.graphql"},
+		Run: func(context.Context, shell.ShellRun) error {
+			generations.Add(1)
+			return nil
+		},
+	}
+	started := make(chan int32, 8)
+	service := &taskrunner.Task{
+		Name: "service", KeepAlive: true, Dependencies: []*taskrunner.Task{generator},
+		Run: func(ctx context.Context, _ shell.ShellRun) error {
+			started <- generations.Load()
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	fakeWatcher := &taskrunnerPerformanceWatcher{events: make(chan watcher.WatchEvent, 8)}
+	executor := taskrunner.NewExecutor(&config.Config{WorkingDir: t.TempDir()},
+		[]*taskrunner.Task{generator, service}, taskrunner.WithWatchMode(true),
+		taskrunner.WithWatcherEnhancer(func(watcher.Watcher) watcher.Watcher { return fakeWatcher }))
+	done := make(chan error, 1)
+	go func() { done <- executor.Run(ctx, []string{service.Name}, &taskrunner.Runtime{}) }()
+	waitForStart := func(want int32) {
+		t.Helper()
+		select {
+		case generation := <-started:
+			assert.Equal(t, want, generation)
+		case <-time.After(5 * time.Second):
+			t.Fatal("service did not start")
+		}
+	}
+	waitForStart(1)
+	for range 3 {
+		fakeWatcher.events <- watcher.WatchEvent{RelativeFilename: "schema.graphql"}
+	}
+	waitForStart(2)
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor did not stop")
+	}
+	assert.Equal(t, int32(2), generations.Load())
 }
