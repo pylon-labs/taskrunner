@@ -4,14 +4,11 @@ import (
 	"context"
 	"testing"
 
-	snapper "github.com/samsarahq/go/snapshotter"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSnapshotter_snapshot(t *testing.T) {
-	snap := snapper.New(t)
-	defer snap.Verify()
-
 	s := snapshotter{
 		CommitFunc: func(context.Context) (string, error) {
 			return "commit-sha", nil
@@ -32,13 +29,30 @@ func TestSnapshotter_snapshot(t *testing.T) {
 		},
 	}
 
-	snapshot, err := s.snapshot(context.TODO(), true)
-	assert.NoError(t, err)
-	snap.Snapshot("snapshot with modified files", snapshot)
+	newFiles := []uncommittedFile{
+		{Path: "yay", MD5: "hashedyay"},
+		{Path: "no/bar.go", MD5: "hashedno/bar.go"},
+		{Path: "no/baz.go", MD5: "hashedno/baz.go"},
+	}
+	modifiedFiles := []uncommittedFile{
+		{Path: "foo", MD5: "hashedfoo"},
+		{Path: "test/bar.go", MD5: "hashedtest/bar.go"},
+		{Path: "test/baz.go", MD5: "hashedtest/baz.go"},
+	}
 
-	snapshot, err = s.snapshot(context.TODO(), false)
-	assert.NoError(t, err)
-	snap.Snapshot("snapshot without modified files", snapshot)
+	t.Run("with modified files", func(t *testing.T) {
+		snapshot, err := s.snapshot(context.TODO(), true)
+		require.NoError(t, err)
+		assert.Equal(t, "commit-sha", snapshot.CommitSha)
+		assert.Equal(t, append(newFiles, modifiedFiles...), snapshot.UncommittedFiles)
+	})
+
+	t.Run("without modified files", func(t *testing.T) {
+		snapshot, err := s.snapshot(context.TODO(), false)
+		require.NoError(t, err)
+		assert.Equal(t, "commit-sha", snapshot.CommitSha)
+		assert.Equal(t, newFiles, snapshot.UncommittedFiles)
+	})
 }
 
 func arrToUncommitted(from []string) (to []uncommittedFile) {

@@ -2,6 +2,7 @@ package taskrunner
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/pylon-labs/taskrunner/config"
-	"github.com/samsarahq/go/oops"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -263,7 +263,7 @@ func Run(options ...RunOption) {
 		// We only care about propagating errors up to the errgroup
 		// if it's a well-known executor error, or the underlying task failed AND
 		// we're not in watch mode.
-		if oops.Cause(err) == errUndefinedTaskName || !watchMode {
+		if errors.Is(err, errUndefinedTaskName) || !watchMode {
 			return err
 		}
 

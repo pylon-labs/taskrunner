@@ -3,6 +3,7 @@ package watcher
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/samsarahq/go/oops"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -70,7 +70,7 @@ func (w *FSEventsWatcher) Run(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "fswatch", "-n", "-l", "0.1", w.directory)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return oops.Wrapf(err, "")
+		return err
 	}
 	cmd.Stderr = os.Stderr
 
@@ -84,12 +84,12 @@ func (w *FSEventsWatcher) Run(ctx context.Context) error {
 
 			relFilename, err := filepath.Rel(w.directory, line[0])
 			if err != nil {
-				return oops.Wrapf(err, "filepath.Rel: %s, %s", w.directory, line[0])
+				return fmt.Errorf("filepath.Rel: %s, %s: %w", w.directory, line[0], err)
 			}
 
 			eventFlags, err := strconv.ParseUint(line[1], 10, 64)
 			if err != nil {
-				return oops.Wrapf(err, "strconv.ParseUint: %s", line[1])
+				return fmt.Errorf("strconv.ParseUint: %s: %w", line[1], err)
 			}
 
 			w.eventsCh <- WatchEvent{
@@ -98,11 +98,14 @@ func (w *FSEventsWatcher) Run(ctx context.Context) error {
 				RelativeFilename: relFilename,
 			}
 		}
-		return oops.Wrapf(scanner.Err(), "scanner.Err()")
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("scanner.Err(): %w", err)
+		}
+		return nil
 	})
 
 	g.Go(func() error {
-		return oops.Wrapf(cmd.Run(), "")
+		return cmd.Run()
 	})
 
 	return g.Wait()
@@ -136,7 +139,7 @@ func (w *INotifyWatcher) Run(ctx context.Context) error {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return oops.Wrapf(err, "")
+		return err
 	}
 	cmd.Stderr = os.Stderr
 
@@ -147,7 +150,7 @@ func (w *INotifyWatcher) Run(ctx context.Context) error {
 
 			relFilename, err := filepath.Rel(w.directory, filepath.Join(line[0], line[2]))
 			if err != nil {
-				return oops.Wrapf(err, "filepath.Rel: %s, %s, %s", w.directory, line[0], line[2])
+				return fmt.Errorf("filepath.Rel: %s, %s, %s: %w", w.directory, line[0], line[2], err)
 			}
 
 			// inotifywait can pass back multple events at once, so parse them individually
@@ -176,11 +179,14 @@ func (w *INotifyWatcher) Run(ctx context.Context) error {
 				}
 			}
 		}
-		return oops.Wrapf(scanner.Err(), "scanner.Err()")
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("scanner.Err(): %w", err)
+		}
+		return nil
 	})
 
 	g.Go(func() error {
-		return oops.Wrapf(cmd.Run(), "")
+		return cmd.Run()
 	})
 
 	return g.Wait()

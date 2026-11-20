@@ -14,7 +14,6 @@ import (
 	"github.com/pylon-labs/taskrunner/config"
 	"github.com/pylon-labs/taskrunner/shell"
 	"github.com/pylon-labs/taskrunner/watcher"
-	"github.com/samsarahq/go/oops"
 	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
@@ -282,7 +281,7 @@ func (e *Executor) Run(ctx context.Context, taskNames []string, runtime *Runtime
 	for _, taskName := range taskNames {
 		task := e.taskRegistry[taskName]
 		if task == nil {
-			return oops.Wrapf(errUndefinedTaskName, "task %s is not defined", taskName)
+			return fmt.Errorf("task %s is not defined: %w", taskName, errUndefinedTaskName)
 		}
 		taskSet.add(executionCtx, task)
 	}

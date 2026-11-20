@@ -10,11 +10,10 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-
-	"github.com/samsarahq/go/oops"
 )
 
 // configFile is the json representation for the .taskrunner.json
@@ -32,7 +31,7 @@ type configFile struct {
 func resolveWorkingDir(filePath, pathOption string) (string, error) {
 	configPath, err := filepath.Abs(filePath)
 	if err != nil {
-		return "", oops.Wrapf(err, "unable to find config file %s", filePath)
+		return "", fmt.Errorf("unable to find config file %s: %w", filePath, err)
 	}
 
 	return filepath.Join(filepath.Dir(configPath), pathOption), nil
@@ -46,12 +45,12 @@ func (c configFile) ToConfig() (*Config, error) {
 	}
 
 	if c.Path == nil {
-		return nil, oops.Errorf("config must specify path: %s", c.configPath)
+		return nil, fmt.Errorf("config must specify path: %s", c.configPath)
 	}
 
 	resolvedPath, err := resolveWorkingDir(c.configPath, *c.Path)
 	if err != nil {
-		return nil, oops.Wrapf(err, "failed to resolve path for %s", *c.Path)
+		return nil, fmt.Errorf("failed to resolve path for %s: %w", *c.Path, err)
 	}
 	config.WorkingDir = resolvedPath
 
@@ -79,7 +78,7 @@ func (c *Config) With(configFile *configFile) (*Config, error) {
 	if path := configFile.Path; path != nil {
 		resolvedPath, err := resolveWorkingDir(configFile.configPath, *path)
 		if err != nil {
-			return nil, oops.Wrapf(err, "failed to resolve path for %s", *path)
+			return nil, fmt.Errorf("failed to resolve path for %s: %w", *path, err)
 		}
 		copy.WorkingDir = resolvedPath
 	}
@@ -109,17 +108,17 @@ func (c *Config) With(configFile *configFile) (*Config, error) {
 func readConfigFile(configPath string) (*configFile, error) {
 	resolvedConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
-		return nil, oops.Wrapf(err, "unable to resolve config file path")
+		return nil, fmt.Errorf("unable to resolve config file path: %w", err)
 	}
 
 	content, err := ioutil.ReadFile(resolvedConfigPath)
 	if err != nil {
-		return nil, oops.Wrapf(err, "unable to read file")
+		return nil, fmt.Errorf("unable to read file: %w", err)
 	}
 
 	configFile := configFile{configPath: resolvedConfigPath}
 	if err := json.Unmarshal(content, &configFile); err != nil {
-		return nil, oops.Wrapf(err, "unable to parse json")
+		return nil, fmt.Errorf("unable to parse json: %w", err)
 	}
 
 	return &configFile, nil
@@ -129,30 +128,30 @@ func readConfigFile(configPath string) (*configFile, error) {
 func ReadConfig(configPath string) (*Config, error) {
 	configFile, err := readConfigFile(configPath)
 	if err != nil {
-		return nil, oops.Wrapf(err, "failed to read config file at %s", configPath)
+		return nil, fmt.Errorf("failed to read config file at %s: %w", configPath, err)
 	}
 
 	if configFile.Extends == nil {
 		config, err := configFile.ToConfig()
 		if err != nil {
-			return nil, oops.Wrapf(err, "failed to build config from %s", configFile.configPath)
+			return nil, fmt.Errorf("failed to build config from %s: %w", configFile.configPath, err)
 		}
 		return config, nil
 	}
 
 	extends, err := filepath.Abs(filepath.Join(filepath.Dir(configPath), *configFile.Extends))
 	if err != nil {
-		return nil, oops.Wrapf(err, "failed to resolve base config at %s", *configFile.Extends)
+		return nil, fmt.Errorf("failed to resolve base config at %s: %w", *configFile.Extends, err)
 	}
 
 	baseConfig, err := ReadConfig(extends)
 	if err != nil {
-		return nil, oops.Wrapf(err, "failed to read base config at %s", extends)
+		return nil, fmt.Errorf("failed to read base config at %s: %w", extends, err)
 	}
 
 	merged, err := baseConfig.With(configFile)
 	if err != nil {
-		return nil, oops.Wrapf(err, "failed to read base config at %s", extends)
+		return nil, fmt.Errorf("failed to read base config at %s: %w", extends, err)
 	}
 
 	return merged, nil
